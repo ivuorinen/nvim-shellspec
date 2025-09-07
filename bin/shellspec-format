@@ -1,0 +1,45 @@
+#!/bin/bash
+# Standalone ShellSpec DSL formatter
+
+format_shellspec() {
+  local indent=0
+  local line
+
+  while IFS= read -r line; do
+    local trimmed=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+    # Skip empty lines and comments
+    if [[ -z "$trimmed" || "$trimmed" =~ ^# ]]; then
+      echo "$line"
+      continue
+    fi
+
+    # Decrease indent for End
+    if [[ "$trimmed" =~ ^End[[:space:]]*$ ]]; then
+      ((indent > 0)) && ((indent--))
+    fi
+
+    # Apply indentation
+    printf "%*s%s\n" $((indent * 2)) "" "$trimmed"
+
+    # Increase indent after block keywords
+    if [[ "$trimmed" =~ ^(Describe|Context|ExampleGroup|It|Specify|Example) ]] ||
+       [[ "$trimmed" =~ ^[xf](Describe|Context|ExampleGroup|It|Specify|Example) ]] ||
+       [[ "$trimmed" =~ ^(Data|Parameters)[[:space:]]*$ ]]; then
+      ((indent++))
+    fi
+  done
+}
+
+# Main execution
+if [[ $# -eq 0 ]]; then
+  format_shellspec
+else
+  for file in "$@"; do
+    if [[ -f "$file" ]]; then
+      format_shellspec < "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+    else
+      echo "Error: File not found: $file" >&2
+    fi
+  done
+fi
