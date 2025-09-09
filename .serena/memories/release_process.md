@@ -1,15 +1,18 @@
 # Release Process
 
 ## Command
+
 Always use `make release` for releases, not manual version bumping.
 
 ## Available Release Commands
+
 - `make release` - Interactive release with menu (patch/minor/major)
 - `make release-patch` - Bump patch version (X.Y.Z → X.Y.Z+1)
 - `make release-minor` - Bump minor version (X.Y.Z → X.Y+1.0)
 - `make release-major` - Bump major version (X.Y.Z → X+1.0.0)
 
-## What make release does:
+## What make release does
+
 1. Checks git status is clean
 2. Verifies version consistency across files
 3. Runs complete test suite
@@ -24,4 +27,5 @@ Always use `make release` for releases, not manual version bumping.
 9. Provides next steps for pushing
 
 ## Manual Process (DO NOT USE)
+
 The old manual process was error-prone and didn't update all version files consistently.

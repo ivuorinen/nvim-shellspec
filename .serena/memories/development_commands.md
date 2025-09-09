@@ -1,6 +1,7 @@
 # Development Commands
 
 ## Key Make Targets
+
 - `make help` - Show all available targets with descriptions
 - `make check` - Quick health check (tools and version consistency)
 - `make test` - Run complete test suite
@@ -11,6 +12,7 @@
 - `make dev-setup` - Set up development environment
 
 ## Testing
+
 - `make test-unit` - Lua unit tests only
 - `make test-integration` - Integration tests
 - `make test-golden` - Golden master tests
@@ -18,6 +20,7 @@
 - Test runner: `./tests/run_tests.sh`
 
 ## Linting
+
 - Uses pre-commit hooks
 - ShellCheck for shell scripts
 - StyLua for Lua formatting
@@ -26,6 +29,7 @@
 - shfmt for shell script formatting
 
 ## Version Management
+
 - Three files must stay in sync:
   - `lua/shellspec/init.lua` (M._VERSION)
   - `plugin/shellspec.vim` (g:shellspec_version)
