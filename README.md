@@ -148,6 +148,52 @@ Describe "Comment handling"
 End
 ```
 
+## Testing
+
+This plugin includes comprehensive tests to ensure formatting quality and reliability.
+
+### Running Tests
+
+```bash
+# Run all test suites
+./tests/run_tests.sh
+
+# Run individual test suites
+lua tests/format_spec.lua          # Unit tests
+./tests/integration_test.sh        # Integration tests  
+./tests/golden_master_test.sh      # Golden master tests
+```
+
+### Test Suites
+
+- **Unit Tests** (`tests/format_spec.lua`): Test core formatting functions with Lua - includes vim API mocking for standalone execution
+- **Integration Tests** (`tests/integration_test.sh`): Test plugin loading, command registration, and end-to-end functionality in Neovim
+- **Golden Master Tests** (`tests/golden_master_test.sh`): Compare actual formatting output against expected results using dynamic test generation
+
+### Test Architecture
+
+The test suite uses **dynamic test generation** to avoid pre-commit hook interference:
+
+- **No external fixture files**: Test data is defined programmatically within the test scripts
+- **Pre-commit safe**: No `.spec.sh` fixture files that can be modified by formatters
+- **Maintainable**: Test cases are co-located with test logic for easy updates
+- **Comprehensive coverage**: Tests basic indentation, comment handling, HEREDOC preservation, and nested contexts
+
+### Test Development
+
+When adding features or fixing bugs:
+
+1. Add unit tests for new formatting logic in `tests/format_spec.lua`
+2. Add integration tests for new commands/features in `tests/integration_test.sh`
+3. Add golden master test cases in the `TEST_CASES` array in `tests/golden_master_test.sh`
+4. Run `./tests/run_tests.sh` to verify all tests pass
+
+Example of adding a golden master test case:
+
+```bash
+"test_name|input_content|expected_content"
+```
+
 ## Contributing
 
 Contributions welcome! Please open issues and pull requests at:

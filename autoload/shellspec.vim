@@ -70,13 +70,6 @@ function! shellspec#format_lines(lines) abort
         continue
       endif
 
-      " Handle comments with proper indentation
-      if l:trimmed =~ '^#' && l:indent_comments
-        let l:formatted = repeat('  ', l:indent) . l:trimmed
-        call add(l:result, l:formatted)
-        continue
-      endif
-
       " Handle End keyword (decrease indent first)
       if l:trimmed =~ '^End\s*$'
         let l:indent = max([0, l:indent - 1])
@@ -85,22 +78,33 @@ function! shellspec#format_lines(lines) abort
         continue
       endif
 
-      " Apply normal indentation for other lines
-      if l:trimmed !~ '^#' || !l:indent_comments
-        let l:formatted = repeat('  ', l:indent) . l:trimmed
-        call add(l:result, l:formatted)
-
-        " Increase indent after block keywords
-        if l:trimmed =~ '^\(Describe\|Context\|ExampleGroup\|It\|Specify\|Example\)'
-          let l:indent += 1
-        elseif l:trimmed =~ '^\([xf]\)\(Describe\|Context\|ExampleGroup\|It\|Specify\|Example\)'
-          let l:indent += 1
-        elseif l:trimmed =~ '^\(Data\|Parameters\)\s*$'
-          let l:indent += 1
+      " Handle comments
+      if l:trimmed =~ '^#'
+        if l:indent_comments
+          let l:formatted = repeat('  ', l:indent) . l:trimmed
+          call add(l:result, l:formatted)
+        else
+          " Preserve original comment formatting
+          call add(l:result, l:line)
         endif
-      else
-        " Preserve original comment formatting if indent_comments is false
-        call add(l:result, l:line)
+        continue
+      endif
+
+      " Handle non-comment lines (ShellSpec commands, etc.)
+      let l:formatted = repeat('  ', l:indent) . l:trimmed
+      call add(l:result, l:formatted)
+
+      " Increase indent after block keywords
+      if l:trimmed =~ '^\(Describe\|Context\|ExampleGroup\|It\|Specify\|Example\)'
+        let l:indent += 1
+      elseif l:trimmed =~ '^\([xf]\)\(Describe\|Context\|ExampleGroup\|It\|Specify\|Example\)'
+        let l:indent += 1
+      elseif l:trimmed =~ '^\(Data\|Parameters\)\s*$'
+        let l:indent += 1
+      elseif l:trimmed =~ '^\(BeforeEach\|AfterEach\|BeforeAll\|AfterAll\|Before\|After\)'
+        let l:indent += 1
+      elseif l:trimmed =~ '^\(BeforeCall\|AfterCall\|BeforeRun\|AfterRun\)'
+        let l:indent += 1
       endif
 
     elseif l:state ==# 'heredoc'

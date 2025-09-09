@@ -3,7 +3,6 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
-      - id: requirements-txt-fixer
       - id: detect-private-key
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
@@ -21,6 +20,11 @@ repos:
         args: [--fix=auto]
       - id: pretty-format-json
         args: [--autofix, --no-sort-keys]
+
+  - repo: https://github.com/JohnnyMorganz/StyLua
+    rev: v2.1.0
+    hooks:
+      - id: stylua-github # or stylua-system / stylua
 
   - repo: https://github.com/igorshubovych/markdownlint-cli
     rev: v0.45.0
@@ -51,12 +55,12 @@ repos:
         args: ["-shellcheck="]
 
   - repo: https://github.com/renovatebot/pre-commit-hooks
-    rev: 41.97.9
+    rev: 41.99.1
     hooks:
       - id: renovate-config-validator
 
   - repo: https://github.com/bridgecrewio/checkov.git
-    rev: "3.2.469"
+    rev: "3.2.470"
     hooks:
       - id: checkov
         args:

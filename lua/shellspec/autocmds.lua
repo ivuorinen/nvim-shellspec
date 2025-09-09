@@ -10,10 +10,12 @@ local augroup = vim.api.nvim_create_augroup("ShellSpec", { clear = true })
 local function setup_buffer(bufnr)
   -- Set buffer options
   vim.api.nvim_set_option_value("commentstring", "# %s", { buf = bufnr })
-  vim.api.nvim_set_option_value("foldmethod", "indent", { buf = bufnr })
   vim.api.nvim_set_option_value("shiftwidth", config.get("indent_size"), { buf = bufnr })
   vim.api.nvim_set_option_value("tabstop", config.get("indent_size"), { buf = bufnr })
   vim.api.nvim_set_option_value("expandtab", config.get("use_spaces"), { buf = bufnr })
+
+  -- Set window-local options (foldmethod is window-local)
+  vim.api.nvim_set_option_value("foldmethod", "indent", { win = 0 })
 
   -- Buffer-local commands
   vim.api.nvim_buf_create_user_command(bufnr, "ShellSpecFormat", function()
@@ -35,6 +37,18 @@ end
 
 -- Create all autocommands
 function M.setup()
+  -- Create global commands first
+  vim.api.nvim_create_user_command("ShellSpecFormat", function()
+    format.format_buffer()
+  end, { desc = "Format current ShellSpec buffer" })
+
+  vim.api.nvim_create_user_command("ShellSpecFormatRange", function(cmd_opts)
+    format.format_selection(0, cmd_opts.line1, cmd_opts.line2)
+  end, {
+    range = true,
+    desc = "Format ShellSpec selection",
+  })
+
   -- FileType detection and setup
   vim.api.nvim_create_autocmd("FileType", {
     group = augroup,

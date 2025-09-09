@@ -11,14 +11,25 @@ let g:loaded_shellspec = 1
 " Detect Neovim and use appropriate implementation
 if has('nvim-0.7')
   " Use modern Neovim Lua implementation
-  lua require('shellspec.autocmds').setup()
+  " Initialize with error handling
+  lua << EOF
+    local ok, err = pcall(function()
+      -- Initialize configuration with defaults
+      require('shellspec.config').setup()
 
-  " Create commands that delegate to Lua
-  command! ShellSpecFormat lua require('shellspec').format_buffer()
-  command! -range ShellSpecFormatRange lua require('shellspec').format_selection(0, <line1>, <line2>)
+      -- Setup autocommands and commands
+      require('shellspec.autocmds').setup()
 
-  " Optional: Auto-format on save (handled in Lua)
-  " This is now managed by the Lua autocmds module based on configuration
+      -- Debug message
+      if vim.g.shellspec_debug then
+        vim.notify('ShellSpec Neovim: Loaded successfully', vim.log.levels.INFO)
+      end
+    end)
+
+    if not ok then
+      vim.notify('ShellSpec Neovim: Failed to load - ' .. tostring(err), vim.log.levels.ERROR)
+    end
+EOF
 
 else
   " Fallback to VimScript implementation for older Vim
