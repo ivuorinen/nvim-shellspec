@@ -41,7 +41,7 @@ EOF
 }
 
 version() {
-  echo "shellspec-format 2.0.0"
+  echo "shellspec-format 2.0.1"
   echo "Part of nvim-shellspec plugin"
 }
 
