@@ -9,7 +9,7 @@ endif
 let g:loaded_shellspec = 1
 
 " Version information
-let g:shellspec_version = '2.0.1'
+let g:shellspec_version = '2.0.2'
 
 " Detect Neovim and use appropriate implementation
 if has('nvim-0.7')

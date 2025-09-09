@@ -7,7 +7,7 @@ local format = require("shellspec.format")
 local autocmds = require("shellspec.autocmds")
 
 -- Version info
-M._VERSION = "2.0.1"
+M._VERSION = "2.0.2"
 
 -- Setup function for Lua configuration
 function M.setup(opts)

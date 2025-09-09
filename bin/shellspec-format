@@ -17,7 +17,7 @@ STATE_HEREDOC=2
 # Usage information
 usage() {
   cat <<'EOF'
-Usage: shellspec-format [OPTIONS] [FILE...]
+Usage: shellspec-format 2.0.2[OPTIONS] [FILE...]
 
 Enhanced ShellSpec DSL formatter with HEREDOC preservation and smart comment indentation.
 
@@ -33,15 +33,15 @@ If no files are specified, reads from stdin and writes to stdout.
 If files are specified, formats them in place.
 
 EXAMPLES:
-  shellspec-format < input.spec.sh > output.spec.sh
-  shellspec-format file1.spec.sh file2.spec.sh
-  cat file.spec.sh | shellspec-format --indent-size 4 --tabs
+  shellspec-format 2.0.2< input.spec.sh > output.spec.sh
+  shellspec-format 2.0.2file1.spec.sh file2.spec.sh
+  cat file.spec.sh | shellspec-format 2.0.2--indent-size 4 --tabs
 
 EOF
 }
 
 version() {
-  echo "shellspec-format 2.0.1"
+  echo "shellspec-format 2.0.2"
   echo "Part of nvim-shellspec plugin"
 }
 
