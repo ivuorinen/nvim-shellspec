@@ -6,7 +6,8 @@ format_shellspec() {
   local line
 
   while IFS= read -r line; do
-    local trimmed=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    local trimmed
+    trimmed=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
     # Skip empty lines and comments
     if [[ -z "$trimmed" || "$trimmed" =~ ^# ]]; then
@@ -24,8 +25,8 @@ format_shellspec() {
 
     # Increase indent after block keywords
     if [[ "$trimmed" =~ ^(Describe|Context|ExampleGroup|It|Specify|Example) ]] ||
-       [[ "$trimmed" =~ ^[xf](Describe|Context|ExampleGroup|It|Specify|Example) ]] ||
-       [[ "$trimmed" =~ ^(Data|Parameters)[[:space:]]*$ ]]; then
+      [[ "$trimmed" =~ ^[xf](Describe|Context|ExampleGroup|It|Specify|Example) ]] ||
+      [[ "$trimmed" =~ ^(Data|Parameters)[[:space:]]*$ ]]; then
       ((indent++))
     fi
   done
@@ -37,7 +38,7 @@ if [[ $# -eq 0 ]]; then
 else
   for file in "$@"; do
     if [[ -f "$file" ]]; then
-      format_shellspec < "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+      format_shellspec <"$file" >"${file}.tmp" && mv "${file}.tmp" "$file"
     else
       echo "Error: File not found: $file" >&2
     fi
