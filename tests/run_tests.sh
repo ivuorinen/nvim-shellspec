@@ -15,6 +15,7 @@ NC='\033[0m' # No Color
 UNIT_PASSED=false
 INTEGRATION_PASSED=false
 GOLDEN_PASSED=false
+BIN_FORMAT_PASSED=false
 
 # Get the script directory and project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -110,6 +111,9 @@ echo ""
 echo -e "${BLUE}----------------------------------------${NC}"
 echo ""
 
+# Run bin formatter tests
+run_test_suite "Standalone Formatter Tests" "script" "./tests/bin_format_spec.sh" BIN_FORMAT_PASSED
+
 # Summary
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE} Test Results Summary                   ${NC}"
@@ -134,10 +138,16 @@ else
   echo -e "${RED}✗ Golden Master Tests: FAILED${NC}"
 fi
 
+if [ "$BIN_FORMAT_PASSED" = true ]; then
+  echo -e "${GREEN}✓ Standalone Formatter Tests: PASSED${NC}"
+else
+  echo -e "${RED}✗ Standalone Formatter Tests: FAILED${NC}"
+fi
+
 echo ""
 
 # Overall result
-if [ "$UNIT_PASSED" = true ] && [ "$INTEGRATION_PASSED" = true ] && [ "$GOLDEN_PASSED" = true ]; then
+if [ "$UNIT_PASSED" = true ] && [ "$INTEGRATION_PASSED" = true ] && [ "$GOLDEN_PASSED" = true ] && [ "$BIN_FORMAT_PASSED" = true ]; then
   echo -e "${GREEN}🎉 ALL TESTS COMPLETED SUCCESSFULLY! 🎉${NC}"
   echo ""
   echo -e "${GREEN}The nvim-shellspec plugin is ready for use!${NC}"

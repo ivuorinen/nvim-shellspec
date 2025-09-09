@@ -8,6 +8,9 @@ if exists('g:loaded_shellspec')
 endif
 let g:loaded_shellspec = 1
 
+" Version information
+let g:shellspec_version = '2.0.0'
+
 " Detect Neovim and use appropriate implementation
 if has('nvim-0.7')
   " Use modern Neovim Lua implementation

@@ -1,46 +1,305 @@
 #!/bin/bash
-# Standalone ShellSpec DSL formatter
+# Enhanced ShellSpec DSL formatter with HEREDOC and comment support
+# Matches functionality from the nvim-shellspec plugin
 
+set -e
+
+# Default configuration
+INDENT_SIZE=2
+USE_SPACES=1
+INDENT_COMMENTS=1
+DEBUG=0
+
+# State constants
+STATE_NORMAL=1
+STATE_HEREDOC=2
+
+# Usage information
+usage() {
+  cat <<'EOF'
+Usage: shellspec-format [OPTIONS] [FILE...]
+
+Enhanced ShellSpec DSL formatter with HEREDOC preservation and smart comment indentation.
+
+OPTIONS:
+  -h, --help              Show this help message
+  -s, --indent-size SIZE  Set indentation size (default: 2)
+  -t, --tabs              Use tabs instead of spaces
+  -n, --no-comment-indent Don't indent comments
+  -d, --debug             Enable debug output
+  -v, --version           Show version information
+
+If no files are specified, reads from stdin and writes to stdout.
+If files are specified, formats them in place.
+
+EXAMPLES:
+  shellspec-format < input.spec.sh > output.spec.sh
+  shellspec-format file1.spec.sh file2.spec.sh
+  cat file.spec.sh | shellspec-format --indent-size 4 --tabs
+
+EOF
+}
+
+version() {
+  echo "shellspec-format 2.0.0"
+  echo "Part of nvim-shellspec plugin"
+}
+
+# Debug logging
+debug_log() {
+  if [[ $DEBUG -eq 1 ]]; then
+    echo "DEBUG: $*" >&2
+  fi
+}
+
+# Detect HEREDOC start and return delimiter
+detect_heredoc_start() {
+  local line="$1"
+  local trimmed
+  trimmed=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+  # Check for various HEREDOC patterns
+  local patterns=(
+    "<<([A-Z_][A-Z0-9_]*)"
+    "<<'([^']*)'"
+    "<<\"([^\"]*)\""
+    "<<-([A-Z_][A-Z0-9_]*)"
+  )
+
+  for pattern in "${patterns[@]}"; do
+    if [[ $trimmed =~ $pattern ]]; then
+      echo "${BASH_REMATCH[1]}"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+# Check if line ends a HEREDOC
+is_heredoc_end() {
+  local line="$1"
+  local delimiter="$2"
+  local trimmed
+  trimmed=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+  [[ -n "$delimiter" && "$trimmed" == "$delimiter" ]]
+}
+
+# Check if line is a ShellSpec block keyword
+is_block_keyword() {
+  local line="$1"
+  local trimmed
+  trimmed=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+  debug_log "Checking if block keyword: '$trimmed'"
+
+  # Standard block keywords
+  if [[ $trimmed =~ ^(Describe|Context|ExampleGroup|It|Specify|Example)[[:space:]] ]]; then
+    debug_log "Matched standard block keyword: '$trimmed'"
+    return 0
+  fi
+
+  # Prefixed block keywords (x for skip, f for focus)
+  if [[ $trimmed =~ ^[xf](Describe|Context|ExampleGroup|It|Specify|Example)[[:space:]] ]]; then
+    debug_log "Matched prefixed block keyword: '$trimmed'"
+    return 0
+  fi
+
+  # Data and Parameters blocks
+  if [[ $trimmed =~ ^(Data|Parameters)[[:space:]]*$ ]]; then
+    debug_log "Matched data/parameters block: '$trimmed'"
+    return 0
+  fi
+
+  # Hook keywords that create blocks (can be standalone)
+  if [[ $trimmed =~ ^(BeforeEach|AfterEach|BeforeAll|AfterAll|Before|After)[[:space:]]*$ ]]; then
+    debug_log "Matched hook keyword: '$trimmed'"
+    return 0
+  fi
+
+  # Additional hook keywords (can be standalone)
+  if [[ $trimmed =~ ^(BeforeCall|AfterCall|BeforeRun|AfterRun)[[:space:]]*$ ]]; then
+    debug_log "Matched additional hook keyword: '$trimmed'"
+    return 0
+  fi
+
+  debug_log "Not a block keyword: '$trimmed'"
+  return 1
+}
+
+# Check if line is an End keyword
+is_end_keyword() {
+  local line="$1"
+  local trimmed
+  trimmed=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+  [[ $trimmed =~ ^End[[:space:]]*$ ]]
+}
+
+# Check if line is a comment
+is_comment() {
+  local line="$1"
+  local trimmed
+  trimmed=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+  [[ $trimmed =~ ^# ]]
+}
+
+# Generate indentation string
+make_indent() {
+  local level="$1"
+  local total_indent=$((level * INDENT_SIZE))
+
+  if [[ $USE_SPACES -eq 1 ]]; then
+    printf "%*s" $total_indent ""
+  else
+    printf "%*s" $level "" | tr ' ' '\t'
+  fi
+}
+
+# Main formatting function
 format_shellspec() {
-  local indent=0
+  local indent_level=0
+  local state=$STATE_NORMAL
+  local heredoc_delimiter=""
   local line
 
   while IFS= read -r line; do
     local trimmed
     trimmed=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
-    # Skip empty lines and comments
-    if [[ -z "$trimmed" || "$trimmed" =~ ^# ]]; then
+    # Handle empty lines
+    if [[ -z "$trimmed" ]]; then
       echo "$line"
       continue
     fi
 
-    # Decrease indent for End
-    if [[ "$trimmed" =~ ^End[[:space:]]*$ ]]; then
-      ((indent > 0)) && ((indent--))
-    fi
+    # State machine for HEREDOC handling
+    case $state in
+    "$STATE_NORMAL")
+      # Check for HEREDOC start
+      if heredoc_delimiter=$(detect_heredoc_start "$line"); then
+        state=$STATE_HEREDOC
+        debug_log "HEREDOC start detected: '$heredoc_delimiter'"
+        # Apply current indentation to HEREDOC start line
+        printf "%s%s\n" "$(make_indent $indent_level)" "$trimmed"
+        continue
+      fi
 
-    # Apply indentation
-    printf "%*s%s\n" $((indent * 2)) "" "$trimmed"
+      # Handle End keyword (decrease indent first)
+      if is_end_keyword "$line"; then
+        ((indent_level > 0)) && ((indent_level--))
+        printf "%s%s\n" "$(make_indent $indent_level)" "$trimmed"
+        continue
+      fi
 
-    # Increase indent after block keywords
-    if [[ "$trimmed" =~ ^(Describe|Context|ExampleGroup|It|Specify|Example) ]] ||
-      [[ "$trimmed" =~ ^[xf](Describe|Context|ExampleGroup|It|Specify|Example) ]] ||
-      [[ "$trimmed" =~ ^(Data|Parameters)[[:space:]]*$ ]]; then
-      ((indent++))
-    fi
+      # Handle comments
+      if is_comment "$line"; then
+        if [[ $INDENT_COMMENTS -eq 1 ]]; then
+          printf "%s%s\n" "$(make_indent $indent_level)" "$trimmed"
+        else
+          # Preserve original comment formatting
+          echo "$line"
+        fi
+        continue
+      fi
+
+      # Handle non-comment lines (ShellSpec commands, etc.)
+      printf "%s%s\n" "$(make_indent $indent_level)" "$trimmed"
+
+      # Increase indent after block keywords
+      if is_block_keyword "$line"; then
+        ((indent_level++))
+        debug_log "Block keyword detected: '$trimmed', new indent: $indent_level"
+      fi
+      ;;
+
+    "$STATE_HEREDOC")
+      # Check for HEREDOC end
+      if is_heredoc_end "$line" "$heredoc_delimiter"; then
+        state=$STATE_NORMAL
+        debug_log "HEREDOC end detected: '$heredoc_delimiter'"
+        # Apply current indentation to HEREDOC end line
+        printf "%s%s\n" "$(make_indent $indent_level)" "$trimmed"
+        heredoc_delimiter=""
+      else
+        # Preserve original indentation within HEREDOC
+        echo "$line"
+      fi
+      ;;
+    esac
   done
 }
 
+# Parse command line options
+while [[ $# -gt 0 ]]; do
+  case $1 in
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  -v | --version)
+    version
+    exit 0
+    ;;
+  -s | --indent-size)
+    INDENT_SIZE="$2"
+    if ! [[ $INDENT_SIZE =~ ^[0-9]+$ ]] || [[ $INDENT_SIZE -lt 1 ]]; then
+      echo "Error: indent-size must be a positive integer" >&2
+      exit 1
+    fi
+    shift 2
+    ;;
+  -t | --tabs)
+    USE_SPACES=0
+    shift
+    ;;
+  -n | --no-comment-indent)
+    INDENT_COMMENTS=0
+    shift
+    ;;
+  -d | --debug)
+    DEBUG=1
+    shift
+    ;;
+  --)
+    shift
+    break
+    ;;
+  -*)
+    echo "Error: Unknown option $1" >&2
+    echo "Use --help for usage information" >&2
+    exit 1
+    ;;
+  *)
+    break
+    ;;
+  esac
+done
+
 # Main execution
 if [[ $# -eq 0 ]]; then
+  # Read from stdin, write to stdout
+  debug_log "Reading from stdin"
   format_shellspec
 else
+  # Process files in place
   for file in "$@"; do
     if [[ -f "$file" ]]; then
-      format_shellspec <"$file" >"${file}.tmp" && mv "${file}.tmp" "$file"
+      debug_log "Processing file: $file"
+      temp_file=$(mktemp)
+      if format_shellspec <"$file" >"$temp_file"; then
+        mv "$temp_file" "$file"
+        debug_log "Successfully formatted: $file"
+      else
+        rm -f "$temp_file"
+        echo "Error: Failed to format $file" >&2
+        exit 1
+      fi
     else
       echo "Error: File not found: $file" >&2
+      exit 1
     fi
   done
 fi
