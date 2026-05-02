@@ -60,7 +60,7 @@ repos:
       - id: renovate-config-validator
 
   - repo: https://github.com/bridgecrewio/checkov.git
-    rev: "3.2.525"
+    rev: "3.2.526"
     hooks:
       - id: checkov
         args:
