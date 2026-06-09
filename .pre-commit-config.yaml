@@ -55,7 +55,7 @@ repos:
         args: ["-shellcheck="]
 
   - repo: https://github.com/bridgecrewio/checkov.git
-    rev: "3.2.533"
+    rev: "3.2.534"
     hooks:
       - id: checkov
         args:
