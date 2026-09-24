@@ -30,8 +30,8 @@ This runs:
 ### 3a. Neovim Lua Implementation Testing
 
 ```bash
-# Test in Neovim 0.7+
-nvim test_example.spec.sh
+# Test in Neovim 0.10+
+nvim /tmp/scratch.spec.sh   # create your own scratch spec
 
 # Verify Lua path is used
 :lua print("Using Lua implementation")
@@ -48,7 +48,7 @@ nvim test_example.spec.sh
 
 ```bash
 # Test in older Neovim or Vim
-vim test_example.spec.sh  # or nvim --clean with older version
+vim /tmp/scratch.spec.sh  # or nvim --clean with older version
 
 # Verify VimScript path is used
 :echo "Using VimScript implementation"
@@ -122,7 +122,7 @@ let g:shellspec_indent_comments = 0
 1. **Create test ShellSpec file**:
 
    ```bash
-   cp test_example.spec.sh my_test.spec.sh
+   printf 'Describe "x"\nIt "y"\nEnd\nEnd\n' > my_test.spec.sh
    ```
 
 2. **Test filetype detection**:

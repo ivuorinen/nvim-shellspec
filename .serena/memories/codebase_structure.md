@@ -27,7 +27,7 @@ nvim-shellspec/
 
 ## Core Files
 
-### Lua Implementation (Neovim 0.7+)
+### Lua Implementation (Neovim 0.10+)
 
 #### lua/shellspec/init.lua
 
@@ -58,21 +58,21 @@ nvim-shellspec/
 
 - Neovim-native autocommands using vim.api
 - Buffer-local settings and commands
-- Enhanced filetype detection patterns
 - Auto-format on save integration
+- (Filetype detection lives only in ftdetect/shellspec.vim)
 
 #### lua/shellspec/health.lua
 
 - Comprehensive health checks for :checkhealth
 - Configuration validation
 - Module loading verification
-- Project ShellSpec file detection
+- Settings of the buffer :checkhealth was run from
 
 ### VimScript Implementation (Compatibility)
 
 #### plugin/shellspec.vim
 
-- **Dual Implementation Logic**: Detects Neovim 0.7+ and loads appropriate implementation
+- **Dual Implementation Logic**: Detects Neovim 0.10+ and loads appropriate implementation
 - **Neovim Path**: Loads Lua modules and creates command delegators
 - **Vim Path**: Falls back to enhanced VimScript implementation
 - Maintains all existing functionality
