@@ -429,17 +429,32 @@ end)
 -- `"<<(E)(OF)"` used to be accepted, and string.match's first capture "E" became
 -- the delimiter, so `EOF` never closed the HEREDOC. `%%(` is a literal percent
 -- followed by a real capture; `%(` is an escaped paren and no capture at all.
+-- Parens inside a `[...]` set are set members, not captures, including after a
+-- leading `]` member.
 assert_equal(
-  { "<<%%(x)", "<<([%a_]+)" },
+  { "<<%%(x)", "<<([%a_]+)", "<<'([%w_()]+)'", "<<([]()]+)", "<<[(](x)" },
   config.validate_heredoc_patterns({
     "<<(E)(OF)",
     "<<%(EOF%)",
     "<<()EOF",
     "<<%%(x)",
     "<<([%a_]+)",
+    "<<'([%w_()]+)'",
+    "<<([]()]+)",
+    "<<[(](x)",
   }),
   "heredoc_patterns need exactly one non-position capture"
 )
+
+-- A set containing parens stays usable end to end: the quoted delimiter
+-- `A(B)` keeps its HEREDOC body verbatim instead of falling back to defaults.
+with_config({ heredoc_patterns = { "<<'([%w_()]+)'" } }, function()
+  assert_equal(
+    { 'It "x"', "  When call cat <<'A(B)'", "    kept as is", "A(B)", "End" },
+    format.format_lines({ 'It "x"', "When call cat <<'A(B)'", "    kept as is", "A(B)", "End" }),
+    "heredoc_pattern with parens in a set keeps the body verbatim"
+  )
+end)
 
 -- Test 14c: the deprecated aliases exported at v2.0.2 stay callable.
 do

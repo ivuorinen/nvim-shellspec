@@ -32,15 +32,43 @@ M.config = {}
 
 --- True when `pattern` has exactly one Lua capture group, and it is not `()`.
 ---
---- Every `%x` escape is stripped before counting, so `%(` is not a capture while
---- the `(` in `%%(` still is (`%%` is a literal percent). Exactly one, because
---- string.match returns the first capture as the delimiter: `"<<(E)(OF)"`
---- yielded "E", which no terminator line equals. A position capture `()`
---- yields a number, which no terminator line equals either.
+--- Walks the pattern the way Lua's matcher reads it: a `%x` escape is one
+--- literal item, so `%(` is not a capture while the `(` in `%%(` still is (`%%`
+--- is a literal percent); and a `[...]` set is skipped whole, so the parens in
+--- `[%w_()]` are set members, not captures. A `]` directly after `[` or `[^` is a
+--- literal member, as in Lua. Exactly one capture, because string.match returns
+--- the first capture as the delimiter: `"<<(E)(OF)"` yielded "E", which no
+--- terminator line equals. A position capture `()` yields a number, which no
+--- terminator line equals either.
 local function has_single_capture(pattern)
-  local stripped = pattern:gsub("%%.", "")
-  local _, count = stripped:gsub("%(", "")
-  return count == 1 and not stripped:find("()", 1, true)
+  local count, i, n = 0, 1, #pattern
+  while i <= n do
+    local ch = pattern:sub(i, i)
+    if ch == "%" then
+      i = i + 2
+    elseif ch == "[" then
+      i = i + 1
+      if pattern:sub(i, i) == "^" then
+        i = i + 1
+      end
+      if pattern:sub(i, i) == "]" then
+        i = i + 1
+      end
+      while i <= n and pattern:sub(i, i) ~= "]" do
+        i = i + (pattern:sub(i, i) == "%" and 2 or 1)
+      end
+      i = i + 1
+    else
+      if ch == "(" then
+        if pattern:sub(i + 1, i + 1) == ")" then
+          return false
+        end
+        count = count + 1
+      end
+      i = i + 1
+    end
+  end
+  return count == 1
 end
 
 --- Drop HEREDOC patterns that do not carry exactly one capture group, warning
