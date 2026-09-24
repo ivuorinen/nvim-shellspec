@@ -24,7 +24,11 @@ FORMATTER="$PROJECT_ROOT/bin/shellspec-format"
 # `rm -rf` because the symlink test registers a directory.
 TMPFILES=()
 cleanup() { [[ ${#TMPFILES[@]} -gt 0 ]] && rm -rf -- "${TMPFILES[@]}"; }
-trap cleanup EXIT INT TERM
+# INT/TERM exit explicitly (EXIT then runs cleanup): a handler that only
+# cleans up lets bash resume, so an interrupted run kept executing cases.
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Helper functions
 print_test() {

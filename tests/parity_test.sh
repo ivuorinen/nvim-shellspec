@@ -24,7 +24,11 @@ FORMATTER="$PROJECT_ROOT/bin/shellspec-format"
 
 TMPFILES=()
 cleanup() { [[ ${#TMPFILES[@]} -gt 0 ]] && rm -f "${TMPFILES[@]}"; }
-trap cleanup EXIT INT TERM
+# INT/TERM exit explicitly (EXIT then runs cleanup): a handler that only
+# cleans up lets bash resume, so an interrupted run kept executing cases.
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Counters use $(( )) rather than ((x++)): under `set -e` a bare ((x++)) exits 1
 # when x is 0, because post-increment evaluates to the old value.

@@ -23,7 +23,11 @@ TESTS_FAILED=0
 # FT_DIR is a directory, which `rm -f` refuses to remove.
 TMPFILES=()
 cleanup() { [[ ${#TMPFILES[@]} -gt 0 ]] && rm -rf -- "${TMPFILES[@]}"; }
-trap cleanup EXIT INT TERM
+# INT/TERM exit explicitly (EXIT then runs cleanup): a handler that only
+# cleans up lets bash resume, so an interrupted run kept executing cases.
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Helper functions
 print_test() {
