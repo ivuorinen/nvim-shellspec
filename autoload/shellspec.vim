@@ -175,13 +175,19 @@ endfunction
 " setline() replaces in place: format_lines never adds or removes lines, and
 " the old delete-then-append left Vim's one surviving empty line behind when
 " the range covered the whole buffer.
+"
+" A range that starts inside a HEREDOC is formatted from that HEREDOC's opener
+" and only the requested lines are written back; without the opener the body
+" and terminator were re-indented as ordinary lines.
 function! shellspec#format_selection(start, end) abort
   if !&modifiable
     echohl ErrorMsg | echomsg 'ShellSpec: buffer is not modifiable' | echohl NONE
     return
   endif
 
-  let l:lines = getline(a:start, a:end)
+  let l:context = s:heredoc_opener_before(a:start)
+  let l:context = l:context > 0 ? l:context : a:start
+  let l:lines = getline(l:context, a:end)
   if empty(l:lines)
     return
   endif
@@ -191,7 +197,34 @@ function! shellspec#format_selection(start, end) abort
     let l:seed += 1
   endif
 
-  call setline(a:start, shellspec#format_lines(l:lines, l:seed))
+  let l:formatted = shellspec#format_lines(l:lines, l:seed)
+  call setline(a:start, l:formatted[a:start - l:context :])
+endfunction
+
+" Line number of the HEREDOC opener whose body a:start falls in, or 0.
+" Replays format_lines' state rules: comment and End lines never open a
+" HEREDOC, and a trimmed line equal to the delimiter closes it.
+function! s:heredoc_opener_before(start) abort
+  let l:delimiter = ''
+  let l:opener = 0
+  let l:lnum = 0
+  for l:line in getline(1, a:start - 1)
+    let l:lnum += 1
+    let l:trimmed = trim(l:line)
+    if l:trimmed ==# ''
+      continue
+    endif
+    if !empty(l:delimiter)
+      if l:trimmed ==# l:delimiter
+        let l:delimiter = ''
+        let l:opener = 0
+      endif
+    elseif l:trimmed !~# '^#' && l:trimmed !~# '^End\s*$'
+      let l:delimiter = s:detect_heredoc_start(l:trimmed)
+      let l:opener = empty(l:delimiter) ? 0 : l:lnum
+    endif
+  endfor
+  return l:opener
 endfunction
 
 let &cpo = s:cpo_save

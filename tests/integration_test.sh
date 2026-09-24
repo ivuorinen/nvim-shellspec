@@ -383,6 +383,21 @@ SPEC
     print_fail "Vim set filetype '$(cat "$VIM_FT_OUT")', wanted 'shellspec'"
   fi
 
+  # Vim range starting inside a HEREDOC body: the body and terminator must stay
+  # verbatim, which needs the opener above the range as context.
+  print_test "Vim :ShellSpecFormatRange inside a HEREDOC keeps the body verbatim"
+  VIM_HD_FILE=$(mktemp -t "shellspec_vimhd_XXXXXX.spec.sh")
+  TMPFILES+=("${VIM_HD_FILE}")
+  printf 'It "y"\n  When call cat <<EOF\n  body\nEOF\nThe status should be success\nEnd\n' >"$VIM_HD_FILE"
+  timeout 10 vim -N -e -s -u NONE --cmd "set rtp^=$PROJECT_ROOT" -c "runtime plugin/shellspec.vim" \
+    -c "edit $VIM_HD_FILE" -c "set expandtab shiftwidth=2" -c "3,6ShellSpecFormatRange" -c "write" -c "qa!" </dev/null >/dev/null 2>&1 || true
+  if [[ "$(cat "$VIM_HD_FILE")" == $'It "y"\n  When call cat <<EOF\n  body\nEOF\n  The status should be success\nEnd' ]]; then
+    print_pass "Vim range formatting inside a HEREDOC keeps body and terminator"
+  else
+    print_fail "Vim range formatting inside a HEREDOC produced:"
+    cat -A "$VIM_HD_FILE"
+  fi
+
   # Vim :{range}ShellSpecFormatRange: the range used to be ignored in favour of
   # the '< '> marks, and a whole-buffer range gained a trailing empty line.
   print_test "Vim :ShellSpecFormatRange honours an explicit range"

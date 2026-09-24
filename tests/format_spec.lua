@@ -448,9 +448,23 @@ assert_equal(
     "<<((x))",
     "<<(x)%",
     "<<(%w+)[abc",
+    "<<(EOF)%f",
+    "<<(EOF)%b(",
   }),
   "heredoc_patterns need exactly one well-formed non-position capture"
 )
+
+-- Use-site guard: a malformed pattern that reaches format_lines anyway (set
+-- here directly, bypassing validation) is skipped instead of raising, and the
+-- next pattern still detects the HEREDOC.
+do
+  local saved = config.config.heredoc_patterns
+  config.config.heredoc_patterns = { "<<(EOF)%f", "<<%-?%s*\\?([%a_][%w_]*)" }
+  local ok, result = pcall(format.format_lines, { 'It "x"', "When call cat <<EOF", "  body", "EOF", "End" })
+  config.config.heredoc_patterns = saved
+  assert_equal(true, ok, "a pattern that raises at match time does not abort format_lines")
+  assert_equal({ 'It "x"', "  When call cat <<EOF", "  body", "EOF", "End" }, ok and result or {}, "the remaining patterns still detect the HEREDOC")
+end
 
 -- A malformed pattern used to pass validation and then raise "unfinished
 -- capture" from format_lines. It is now dropped, the defaults apply, and the
@@ -513,6 +527,29 @@ do
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, { 'Describe "x"', 'It "y"', "End", "End" })
   format.format_buffer(buf)
   assert_equal({ 'Describe "x"', '  It "y"', "  End", "End" }, vim.api.nvim_buf_get_lines(buf, 0, -1, false), "format_buffer formats in place")
+  vim.api.nvim_buf_delete(buf, { force = true })
+end
+
+-- Test 16b: a range starting inside a HEREDOC body keeps the body and
+-- terminator verbatim; only the requested lines are rewritten.
+do
+  local lines = {
+    'Describe "x"',
+    '  It "y"',
+    "    When call cat <<EOF",
+    "  body one",
+    "body two",
+    "EOF",
+    '  The output should equal "x"',
+    "  End",
+    "End",
+  }
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  format.format_selection(buf, 4, 9)
+  local want = vim.deepcopy(lines)
+  want[7] = '    The output should equal "x"'
+  assert_equal(want, vim.api.nvim_buf_get_lines(buf, 0, -1, false), "range starting in a HEREDOC body keeps it verbatim")
   vim.api.nvim_buf_delete(buf, { force = true })
 end
 

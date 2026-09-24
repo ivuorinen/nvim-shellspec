@@ -54,6 +54,12 @@ local function has_single_capture(pattern)
       if i == n then
         return false
       end
+      -- `%f` needs a following `[set]` and `%b` two delimiter characters;
+      -- without them string.match raises when a match reaches that point.
+      local op = pattern:sub(i + 1, i + 1)
+      if (op == "f" and pattern:sub(i + 2, i + 2) ~= "[") or (op == "b" and i + 3 > n) then
+        return false
+      end
       i = i + 2
     elseif ch == "[" then
       i = i + 1

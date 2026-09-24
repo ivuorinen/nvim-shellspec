@@ -61,14 +61,26 @@ end
 ---
 --- Patterns come from config so a project can add its own; each must carry
 --- exactly one capture group holding the delimiter.
+---
+--- Each match runs under pcall. config.validate_heredoc_patterns rejects the
+--- malformed shapes it knows, but Lua compiles a pattern only as a match walks
+--- it, so no up-front check can be exhaustive -- and an escaped error here
+--- aborted the whole format. A pattern that raises is warned about once and
+--- then treated as not matching.
+local broken_patterns = {}
 local function detect_heredoc_start(trimmed)
   if trimmed:find("<<<", 1, true) or trimmed:find("((", 1, true) then
     return nil
   end
 
   for _, pattern in ipairs(config.get("heredoc_patterns")) do
-    local delimiter = string.match(trimmed, pattern)
-    if delimiter and delimiter ~= "" then
+    local ok, delimiter = pcall(string.match, trimmed, pattern)
+    if not ok then
+      if not broken_patterns[pattern] then
+        broken_patterns[pattern] = true
+        vim.notify("shellspec: heredoc_pattern " .. pattern .. " is malformed and was skipped: " .. tostring(delimiter), vim.log.levels.WARN)
+      end
+    elseif type(delimiter) == "string" and delimiter ~= "" then
       return delimiter
     end
   end
@@ -180,6 +192,30 @@ local function indent_level_of(line)
   return #(leading:gsub("[^\t]", ""))
 end
 
+--- Line number of the HEREDOC opener whose body line `start_line` falls in, or
+--- nil when `start_line` is not inside a HEREDOC.
+---
+--- Replays format_lines' state rules over the lines above: comment and `End`
+--- lines never open a HEREDOC, and a trimmed line equal to the delimiter closes
+--- it.
+local function heredoc_opener_before(bufnr, start_line)
+  local delimiter, opener = nil, nil
+  for index, line in ipairs(vim.api.nvim_buf_get_lines(bufnr, 0, start_line - 1, false)) do
+    local trimmed = vim.trim(line)
+    if trimmed ~= "" then
+      if delimiter then
+        if is_heredoc_end(trimmed, delimiter) then
+          delimiter, opener = nil, nil
+        end
+      elseif not is_comment(trimmed) and not is_end_keyword(trimmed) then
+        delimiter = detect_heredoc_start(trimmed)
+        opener = delimiter and index or nil
+      end
+    end
+  end
+  return opener
+end
+
 --- Window currently displaying `bufnr`, or nil.
 ---
 --- Cursor save/restore must target the window showing the buffer being
@@ -231,11 +267,17 @@ end
 --- before emitting `End`, so the seed is one deeper for it. Seeding with the
 --- line's own level shifted every following line one level left, which made
 --- `gq` or a range starting at an `End` corrupt already-formatted code.
+---
+--- A range that starts inside a HEREDOC is formatted from that HEREDOC's
+--- opener, and only the requested lines are written back. Without the opener,
+--- format_lines saw the body and terminator as ordinary lines and re-indented
+--- them, so the terminator could no longer close the HEREDOC.
 function M.format_selection(bufnr, start_line, end_line)
   bufnr = bufnr or 0
 
   local ok, err = pcall(function()
-    local lines = vim.api.nvim_buf_get_lines(bufnr, start_line - 1, end_line, false)
+    local context_start = heredoc_opener_before(bufnr, start_line) or start_line
+    local lines = vim.api.nvim_buf_get_lines(bufnr, context_start - 1, end_line, false)
     if #lines == 0 then
       return
     end
@@ -244,7 +286,8 @@ function M.format_selection(bufnr, start_line, end_line)
       seed = seed + 1
     end
     local formatted = M.format_lines(lines, seed)
-    vim.api.nvim_buf_set_lines(bufnr, start_line - 1, end_line, false, formatted)
+    local offset = start_line - context_start
+    vim.api.nvim_buf_set_lines(bufnr, start_line - 1, end_line, false, { unpack(formatted, offset + 1) })
   end)
 
   if not ok then
