@@ -30,29 +30,39 @@ M.defaults = {
 -- Current configuration
 M.config = {}
 
---- True when `pattern` contains an unescaped `(`, i.e. a Lua capture group.
-local function has_capture(pattern)
-  return pattern:gsub("%%%(", ""):gsub("%%%)", ""):find("%(") ~= nil
+--- True when `pattern` has exactly one Lua capture group, and it is not `()`.
+---
+--- Every `%x` escape is stripped before counting, so `%(` is not a capture while
+--- the `(` in `%%(` still is (`%%` is a literal percent). Exactly one, because
+--- string.match returns the first capture as the delimiter: `"<<(E)(OF)"`
+--- yielded "E", which no terminator line equals. A position capture `()`
+--- yields a number, which no terminator line equals either.
+local function has_single_capture(pattern)
+  local stripped = pattern:gsub("%%.", "")
+  local _, count = stripped:gsub("%(", "")
+  return count == 1 and not stripped:find("()", 1, true)
 end
 
---- Drop HEREDOC patterns that carry no capture group, warning about each.
+--- Drop HEREDOC patterns that do not carry exactly one capture group, warning
+--- about each.
 ---
 --- Before these patterns were wired up they were dead config, and the values
 --- this project's own README published carried no capture group. Reading such a
 --- pattern would return the whole match -- "<<EOF" rather than "EOF" -- as the
 --- delimiter, which no terminator line can equal, so the formatter would stay
---- in its HEREDOC state and silently stop formatting the rest of the file.
+--- in its HEREDOC state and silently stop formatting the rest of the file. A
+--- pattern with several captures fails the same way on its first capture.
 --- Dropping them restores the old no-op behaviour and says why.
 function M.validate_heredoc_patterns(patterns)
   local valid = {}
   for _, pattern in ipairs(patterns) do
-    if has_capture(pattern) then
+    if has_single_capture(pattern) then
       table.insert(valid, pattern)
     else
       vim.notify(
-        "shellspec: ignoring heredoc_pattern without a capture group: "
+        "shellspec: ignoring heredoc_pattern without exactly one capture group: "
           .. pattern
-          .. '\n  the pattern must capture the delimiter, e.g. "<<%-?([A-Z_][A-Z0-9_]*)"',
+          .. '\n  the pattern must capture only the delimiter, e.g. "<<%-?%s*([%a_][%w_]*)"',
         vim.log.levels.WARN
       )
     end

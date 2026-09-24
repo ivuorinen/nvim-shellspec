@@ -425,6 +425,22 @@ with_config({
   )
 end)
 
+-- Test 14c-a: validation keeps only patterns with exactly one capture group.
+-- `"<<(E)(OF)"` used to be accepted, and string.match's first capture "E" became
+-- the delimiter, so `EOF` never closed the HEREDOC. `%%(` is a literal percent
+-- followed by a real capture; `%(` is an escaped paren and no capture at all.
+assert_equal(
+  { "<<%%(x)", "<<([%a_]+)" },
+  config.validate_heredoc_patterns({
+    "<<(E)(OF)",
+    "<<%(EOF%)",
+    "<<()EOF",
+    "<<%%(x)",
+    "<<([%a_]+)",
+  }),
+  "heredoc_patterns need exactly one non-position capture"
+)
+
 -- Test 14c: the deprecated aliases exported at v2.0.2 stay callable.
 do
   local shellspec = require("shellspec")
