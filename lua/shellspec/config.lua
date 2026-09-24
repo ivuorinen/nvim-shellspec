@@ -10,32 +10,91 @@ M.defaults = {
   indent_size = 2,
   use_spaces = true,
 
-  -- HEREDOC handling
+  -- HEREDOC detection. Lua patterns, each with exactly one capture group
+  -- holding the delimiter -- `format.detect_heredoc_start` reads the capture,
+  -- so a pattern without one matches but yields no delimiter and is skipped.
+  --
+  -- `%s*` and the optional backslash cover the POSIX spellings `<< EOF` and
+  -- `<<\EOF`, and `%a` covers lowercase words; without them the terminator was
+  -- indented and the shell never closed the HEREDOC.
   heredoc_patterns = {
-    "<<[A-Z_][A-Z0-9_]*", -- <<EOF, <<DATA, etc.
-    "<<'[^']*'", -- <<'EOF'
-    '<<"[^"]*"', -- <<"EOF"
-    "<<-[A-Z_][A-Z0-9_]*", -- <<-EOF (with leading tab removal)
+    "<<%-?%s*\\?([%a_][%w_]*)", -- <<EOF, << EOF, <<eof, <<\EOF, <<-EOF
+    "<<%-?%s*'([^']+)'", -- <<'EOF'
+    '<<%-?%s*"([^"]+)"', -- <<"EOF"
   },
 
   -- Comment indentation
   indent_comments = true,
-
-  -- Formatting options
-  preserve_empty_lines = true,
-  max_line_length = 160,
 }
 
 -- Current configuration
 M.config = {}
 
--- Setup function
-function M.setup(opts)
-  M.config = vim.tbl_deep_extend("force", M.defaults, opts or {})
+--- True when `pattern` contains an unescaped `(`, i.e. a Lua capture group.
+local function has_capture(pattern)
+  return pattern:gsub("%%%(", ""):gsub("%%%)", ""):find("%(") ~= nil
+end
 
-  -- Validate configuration
-  if type(M.config.indent_size) ~= "number" or M.config.indent_size < 1 then
-    vim.notify("shellspec: indent_size must be a positive number", vim.log.levels.WARN)
+--- Drop HEREDOC patterns that carry no capture group, warning about each.
+---
+--- Before these patterns were wired up they were dead config, and the values
+--- this project's own README published carried no capture group. Reading such a
+--- pattern would return the whole match -- "<<EOF" rather than "EOF" -- as the
+--- delimiter, which no terminator line can equal, so the formatter would stay
+--- in its HEREDOC state and silently stop formatting the rest of the file.
+--- Dropping them restores the old no-op behaviour and says why.
+function M.validate_heredoc_patterns(patterns)
+  local valid = {}
+  for _, pattern in ipairs(patterns) do
+    if has_capture(pattern) then
+      table.insert(valid, pattern)
+    else
+      vim.notify(
+        "shellspec: ignoring heredoc_pattern without a capture group: "
+          .. pattern
+          .. '\n  the pattern must capture the delimiter, e.g. "<<%-?([A-Z_][A-Z0-9_]*)"',
+        vim.log.levels.WARN
+      )
+    end
+  end
+
+  if #valid == 0 then
+    vim.notify("shellspec: no usable heredoc_patterns, falling back to defaults", vim.log.levels.WARN)
+    return M.defaults.heredoc_patterns
+  end
+
+  return valid
+end
+
+--- Merge `opts` over the defaults and validate the result.
+---
+--- Unknown keys are reported rather than ignored: `vim.tbl_deep_extend` accepts
+--- anything, so a typo or an option this plugin does not implement would
+--- otherwise be silently accepted and have no effect.
+function M.setup(opts)
+  opts = opts or {}
+
+  for key in pairs(opts) do
+    if M.defaults[key] == nil then
+      vim.notify("shellspec: unknown option '" .. key .. "'", vim.log.levels.WARN)
+    end
+  end
+
+  M.config = vim.tbl_deep_extend("force", M.defaults, opts)
+
+  -- Replaced, not merged: `tbl_deep_extend` merges list-like tables by index, so
+  -- a user list shorter than the default would keep whichever defaults sit past
+  -- its end -- a two-pattern override would silently retain the third default.
+  if opts.heredoc_patterns then
+    M.config.heredoc_patterns = M.validate_heredoc_patterns(opts.heredoc_patterns)
+  end
+
+  -- Integral as well as positive: a float such as 2.5 is rejected by
+  -- 'shiftwidth', which made every shellspec FileType event raise, and
+  -- string.rep truncated it differently at each indent level.
+  local size = M.config.indent_size
+  if type(size) ~= "number" or size < 1 or size % 1 ~= 0 then
+    vim.notify("shellspec: indent_size must be a positive integer", vim.log.levels.WARN)
     M.config.indent_size = M.defaults.indent_size
   end
 end

@@ -11,16 +11,20 @@ let g:loaded_shellspec = 1
 " Version information
 let g:shellspec_version = '2.0.2'
 
-" Detect Neovim and use appropriate implementation
-if has('nvim-0.7')
+" Detect Neovim and use appropriate implementation.
+" 0.10 is what the Lua path actually needs: nvim_set_option_value's `buf` key
+" arrived in 0.8 and vim.health.start/ok in 0.10. The gate used to say 0.7,
+" which sent 0.7-0.9 down a path that errored on every FileType event and in
+" :checkhealth. Older Neovim takes the VimScript fallback instead.
+if has('nvim-0.10')
   " Use modern Neovim Lua implementation
   " Initialize with error handling
   lua << EOF
     local ok, err = pcall(function()
-      -- Initialize configuration with defaults
-      require('shellspec.config').setup()
-
-      -- Setup autocommands and commands
+      -- Registers commands and autocommands against the default config.
+      -- shellspec.config calls its own setup() at module load, so there is
+      -- nothing to initialise here first. A later require('shellspec').setup()
+      -- replaces these registrations rather than adding to them.
       require('shellspec.autocmds').setup()
 
       -- Debug message
@@ -36,15 +40,16 @@ EOF
 
 else
   " Fallback to VimScript implementation for older Vim
-  " Commands
-  command! ShellSpecFormat call shellspec#format_buffer()
-  command! -range ShellSpecFormatRange call shellspec#format_selection()
+  " Commands. -bar so `:ShellSpecFormat | w` chains; the range is passed
+  " explicitly because the '< '> marks ignore an explicit :{range}.
+  command! -bar ShellSpecFormat call shellspec#format_buffer()
+  command! -bar -range ShellSpecFormatRange call shellspec#format_selection(<line1>, <line2>)
 
-  " Auto commands
+  " Auto commands. No 'foldmethod': folding is the user's choice, and forcing
+  " indent folds opened every spec fully folded.
   augroup ShellSpec
     autocmd!
     autocmd FileType shellspec setlocal commentstring=#\ %s
-    autocmd FileType shellspec setlocal foldmethod=indent
     autocmd FileType shellspec setlocal shiftwidth=2 tabstop=2 expandtab
   augroup END
 
