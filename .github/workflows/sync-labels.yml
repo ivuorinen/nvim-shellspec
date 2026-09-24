@@ -14,7 +14,10 @@ on:
     - cron: '34 5 * * *' # Run every day at 05:34 AM UTC
   workflow_call:
   workflow_dispatch:
-  merge_group:
+  # No merge_group trigger: a merge-queue run checks out the PR's proposed
+  # labels.yml and the sync (prune: true) applies it -- deleting labels --
+  # before the PR has merged, and it stays applied if the PR never does. The
+  # push-to-main trigger above syncs once the change has actually landed.
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
