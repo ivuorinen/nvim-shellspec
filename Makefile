@@ -15,7 +15,13 @@ VERSION_BIN := bin/shellspec-format
 
 # Commands
 MAKE := make
-PRE_COMMIT := pre-commit
+# prek is a drop-in replacement for the `pre-commit` runner: it reads the same
+# .pre-commit-config.yaml and swaps in Rust implementations for the
+# pre-commit/pre-commit-hooks entries automatically. Run through `mise exec` so
+# the version pinned in mise.toml is the one used, the same way the luacheck
+# hook is wired. `pre-commit run --all-files` still works on this config if you
+# prefer it -- no prek-only syntax is used.
+PREK := mise exec -- prek
 TEST_RUNNER := ./tests/run_tests.sh
 
 # Default target
@@ -42,9 +48,11 @@ check: ## Quick health check (verify tools and version consistency)
 	@echo "$(BLUE)Running health check...$(NC)"
 	@echo ""
 	@echo "$(GREEN)Checking required tools:$(NC)"
-	@which pre-commit >/dev/null 2>&1 && echo "  ✓ pre-commit found" || echo "  $(RED)✗ pre-commit not found$(NC)"
+	@$(PREK) --version >/dev/null 2>&1 && echo "  ✓ prek available" || echo "  $(RED)✗ prek not available (run: mise install)$(NC)"
 	@which git >/dev/null 2>&1 && echo "  ✓ git found" || echo "  $(RED)✗ git not found$(NC)"
 	@which bash >/dev/null 2>&1 && echo "  ✓ bash found" || echo "  $(RED)✗ bash not found$(NC)"
+	@which mise >/dev/null 2>&1 && echo "  ✓ mise found" || echo "  $(RED)✗ mise not found (needed for luacheck; see mise.toml)$(NC)"
+	@mise exec -- luacheck --version >/dev/null 2>&1 && echo "  ✓ luacheck available" || echo "  $(RED)✗ luacheck not available (run: mise install)$(NC)"
 	@test -f $(TEST_RUNNER) && echo "  ✓ test runner found" || echo "  $(RED)✗ test runner not found$(NC)"
 	@echo ""
 	@echo "$(GREEN)Version consistency:$(NC)"
@@ -74,7 +82,7 @@ version-check: ## Check version consistency across files
 .PHONY: lint
 lint: ## Run all linters
 	@echo "$(BLUE)Running all linters...$(NC)"
-	$(PRE_COMMIT) run --all-files
+	$(PREK) run --all-files
 
 .PHONY: lint-fix
 lint-fix: format ## Run linters with auto-fix (alias for format)
@@ -82,28 +90,30 @@ lint-fix: format ## Run linters with auto-fix (alias for format)
 .PHONY: format
 format: ## Format all code (auto-fix where possible)
 	@echo "$(BLUE)Formatting all code...$(NC)"
-	$(PRE_COMMIT) run --all-files
+	$(PREK) run --all-files
 
 .PHONY: lint-lua
-lint-lua: ## Format Lua code with StyLua
+lint-lua: ## Format Lua with StyLua and lint it with Luacheck
 	@echo "$(BLUE)Formatting Lua code...$(NC)"
-	$(PRE_COMMIT) run stylua-github --all-files
+	$(PREK) run stylua-github --all-files
+	@echo "$(BLUE)Linting Lua code...$(NC)"
+	$(PREK) run luacheck --all-files
 
 .PHONY: lint-shell
 lint-shell: ## Lint shell scripts with ShellCheck and format with shfmt
 	@echo "$(BLUE)Linting shell scripts...$(NC)"
-	$(PRE_COMMIT) run shellcheck --all-files
-	$(PRE_COMMIT) run shfmt --all-files
+	$(PREK) run shellcheck --all-files
+	$(PREK) run shfmt --all-files
 
 .PHONY: lint-markdown
 lint-markdown: ## Lint and format Markdown files
 	@echo "$(BLUE)Linting Markdown files...$(NC)"
-	$(PRE_COMMIT) run markdownlint --all-files
+	$(PREK) run markdownlint --all-files
 
 .PHONY: lint-yaml
 lint-yaml: ## Lint YAML files
 	@echo "$(BLUE)Linting YAML files...$(NC)"
-	$(PRE_COMMIT) run yamllint --all-files
+	$(PREK) run yamllint --all-files
 
 # Testing targets
 .PHONY: test
@@ -112,9 +122,11 @@ test: ## Run complete test suite
 	$(TEST_RUNNER)
 
 .PHONY: test-unit
+# pcall(dofile) + cquit rather than `luafile`: nvim exits 0 after a -c command
+# raises, so a crashing test file would otherwise count as a pass.
 test-unit: ## Run only Lua unit tests
 	@echo "$(BLUE)Running unit tests...$(NC)"
-	cd tests && timeout 30 nvim --headless -u NONE -c "set rtp+=.." -c "luafile format_spec.lua" -c "quit"
+	timeout 30 nvim --headless -u NONE -c "set rtp+=." -c "lua local ok, err = pcall(dofile, 'tests/format_spec.lua'); if not ok then io.stderr:write(tostring(err) .. '\n'); vim.cmd('cquit 1') end" -c "quit"
 
 .PHONY: test-integration
 test-integration: ## Run integration tests
@@ -130,6 +142,11 @@ test-golden: ## Run golden master tests
 test-bin: ## Run standalone formatter tests
 	@echo "$(BLUE)Running standalone formatter tests...$(NC)"
 	cd tests && ./bin_format_spec.sh
+
+.PHONY: test-parity
+test-parity: ## Run cross-implementation parity tests
+	@echo "$(BLUE)Running parity tests...$(NC)"
+	cd tests && timeout 60 ./parity_test.sh
 
 # Release targets
 .PHONY: release
@@ -162,7 +179,9 @@ release-major: ## Bump major version (X.Y.Z → X+1.0.0)
 	@$(MAKE) --no-print-directory _release TYPE=major
 
 .PHONY: _release
-_release: ## Internal release target (use release-* targets instead)
+# Internal release target (use the release-* targets instead). Deliberately
+# without a `##` comment so `make help` does not advertise it.
+_release:
 	@if [ "$(TYPE)" = "" ]; then echo "$(RED)Error: TYPE not specified$(NC)"; exit 1; fi
 	@echo "$(BLUE)Starting $(TYPE) release...$(NC)"
 	@echo ""
@@ -212,7 +231,7 @@ _release: ## Internal release target (use release-* targets instead)
 	echo "$(GREEN)Updating version in files...$(NC)"; \
 	sed -i.bak "s/M._VERSION = \".*\"/M._VERSION = \"$$new_version\"/" $(VERSION_LUA) && rm $(VERSION_LUA).bak; \
 	sed -i.bak "s/let g:shellspec_version = '.*'/let g:shellspec_version = '$$new_version'/" $(VERSION_VIM) && rm $(VERSION_VIM).bak; \
-	sed -i.bak "s/shellspec-format [0-9.]*/shellspec-format $$new_version/" $(VERSION_BIN) && rm $(VERSION_BIN).bak; \
+	sed -i.bak "s/^  echo \"shellspec-format [0-9.]*\"/  echo \"shellspec-format $$new_version\"/" $(VERSION_BIN) && rm $(VERSION_BIN).bak; \
 	echo "  ✓ Updated $(VERSION_LUA)"; \
 	echo "  ✓ Updated $(VERSION_VIM)"; \
 	echo "  ✓ Updated $(VERSION_BIN)"; \
@@ -236,19 +255,21 @@ _release: ## Internal release target (use release-* targets instead)
 
 # Utility targets
 .PHONY: clean
-clean: ## Remove temporary files and test artifacts
+# Scoped to the repository. This used to run `find /tmp -name "*shellspec*"
+# -delete` (and the same for /var/folders), which deleted machine-wide files it
+# did not own -- including the test suites' own live fixtures. The suites now
+# clean up after themselves via traps, so there is nothing to sweep for.
+clean: ## Remove temporary files and test artifacts (repository only)
 	@echo "$(BLUE)Cleaning temporary files...$(NC)"
-	find . -name "*.bak" -delete
-	find . -name "*.tmp" -delete
-	find /tmp -name "*shellspec*" -delete 2>/dev/null || true
-	find /var/folders -name "*shellspec*" -delete 2>/dev/null || true
+	find . -path ./.git -prune -o -name '*.bak' -type f -print -delete
+	find . -path ./.git -prune -o -name '*.tmp' -type f -print -delete
 	@echo "  ✓ Cleaned temporary files"
 
 .PHONY: install
-install: ## Install pre-commit hooks
-	@echo "$(BLUE)Installing pre-commit hooks...$(NC)"
-	$(PRE_COMMIT) install
-	@echo "  ✓ Pre-commit hooks installed"
+install: ## Install git hook shims
+	@echo "$(BLUE)Installing git hook shims...$(NC)"
+	$(PREK) install
+	@echo "  ✓ Git hook shims installed"
 
 # Development convenience targets
 .PHONY: dev-setup
@@ -278,7 +299,8 @@ debug: ## Show debug information
 	@git status --short || echo "  Not in git repository"
 	@echo ""
 	@echo "$(GREEN)Tools:$(NC)"
-	@echo "  pre-commit: $$(which pre-commit || echo 'not found')"
+	@echo "  prek: $$($(PREK) --version 2>/dev/null || echo 'not found')"
+	@echo "  mise: $$(which mise || echo 'not found')"
 	@echo "  git: $$(which git || echo 'not found')"
 	@echo "  nvim: $$(which nvim || echo 'not found')"
 	@echo ""
@@ -286,5 +308,5 @@ debug: ## Show debug information
 
 # Ensure all targets are PHONY (no file dependencies)
 .PHONY: _release help check version version-check lint lint-fix format lint-lua lint-shell lint-markdown lint-yaml
-.PHONY: test test-unit test-integration test-golden test-bin release release-patch release-minor release-major
+.PHONY: test test-unit test-integration test-golden test-bin test-parity release release-patch release-minor release-major
 .PHONY: clean install dev-setup ci debug

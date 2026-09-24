@@ -38,15 +38,36 @@ repos:
       - id: yamllint
 
   - repo: https://github.com/scop/pre-commit-shfmt
-    rev: v3.13.1-1
+    rev: v3.14.1-1
     hooks:
       - id: shfmt
 
   - repo: https://github.com/koalaman/shellcheck-precommit
     rev: v0.11.0
     hooks:
+      # No --severity override: the default surfaces info-level findings too.
+      # Suppress individual checks at the site with `# shellcheck disable=`, or
+      # in .shellcheckrc -- a global floor hides a whole class forever.
       - id: shellcheck
-        args: ["--severity=warning"]
+
+  # luacheck is pinned in mise.toml and invoked through `mise exec`, rather than
+  # via its official hook at https://github.com/lunarmodules/luacheck.
+  #
+  # That hook declares `language: lua`, which pre-commit builds with luarocks:
+  # on a machine without it the hook dies during environment setup with
+  # "Executable `luarocks` not found" (verified). `language` cannot be
+  # overridden per-hook in this file, so using the official hook would mean
+  # adding lua + luarocks to every contributor machine and CI runner. Going
+  # through mise keeps one pinned version that `make lint-lua` and this hook
+  # share.
+  - repo: local
+    hooks:
+      - id: luacheck
+        name: luacheck
+        description: Lint and static analysis of Lua code
+        entry: mise exec -- luacheck
+        language: system
+        types: [lua]
 
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.12

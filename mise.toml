@@ -1,0 +1,23 @@
+# Toolchain for nvim-shellspec.
+#
+#   mise install      # fetch the pinned versions
+#   mise exec -- luacheck lua/ tests/
+#
+# Only tools that something in this repo invokes directly live here. The
+# linters driven through .pre-commit-config.yaml (stylua, shellcheck, shfmt,
+# actionlint, markdownlint, yamllint, checkov) are versioned by their `rev:`
+# pins there and managed by pre-commit's own environments -- duplicating them
+# here would create two sources of truth that Renovate updates separately.
+
+[tools]
+# luacheck has no luarocks-free distribution channel that pre-commit can use:
+# its official hook declares `language: lua`, which pre-commit builds via
+# luarocks. The project does publish a self-contained binary on each GitHub
+# release, so mise pins that and the pre-commit hook shells out to it.
+"github:lunarmodules/luacheck" = "1.2.0"
+
+# Drop-in replacement for the `pre-commit` runner. Reads the existing
+# .pre-commit-config.yaml unchanged and substitutes Rust implementations for
+# the pre-commit/pre-commit-hooks entries automatically, so `prek run
+# --all-files` and `pre-commit run --all-files` check the same things.
+prek = "0.5.3"
