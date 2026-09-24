@@ -3,6 +3,13 @@ if exists("b:current_syntax")
   finish
 endif
 
+" Line continuations below need 'cpoptions' without the C flag. `vim -u NONE`
+" implies 'compatible', which sets it -- and the script-local lists then never
+" get defined, so every call fails with E121. This is the conventional guard for
+" a distributed Vim plugin.
+let s:cpo_save = &cpo
+set cpo&vim
+
 " Keywords - Block structures
 syn keyword shellspecBlock Describe Context ExampleGroup It Specify Example Todo End
 syn keyword shellspecBlock xDescribe xContext xExampleGroup xIt xSpecify xExample
@@ -37,8 +44,12 @@ syn keyword shellspecMatcher equal eq be exist valid satisfy
 syn keyword shellspecModifier line word length contents result first second third
 syn keyword shellspecModifier of
 
-" Tags - for example groups and examples
-syn match shellspecTag "\<\w\+:\w\+\>" contained
+" Tags - for example groups and examples.
+" A top-level match with a lookbehind for the block keyword, not a `contained`
+" item inside a whole-line container: at column 0 the `syn keyword` for
+" Describe/It wins over a match starting at the same column, so the container
+" never started there, and on indented lines it swallowed trailing comments.
+syn match shellspecTag "\%(^\s*[xf]\=\%(Describe\|Context\|ExampleGroup\|It\|Specify\|Example\)\>.*\)\@<=\<\w\+:\w\+\>"
 
 " Strings
 syn region shellspecString start=+"+ skip=+\\"+ end=+"+ contains=shellspecVariable
@@ -78,5 +89,8 @@ hi def link shellspecComment Comment
 hi def link shellspecTodo Todo
 hi def link shellspecDataMarker SpecialChar
 hi def link shellspecNumber Number
+
+let &cpo = s:cpo_save
+unlet s:cpo_save
 
 let b:current_syntax = "shellspec"
