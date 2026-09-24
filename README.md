@@ -63,7 +63,9 @@ git clone https://github.com/ivuorinen/nvim-shellspec.git ~/.config/nvim/pack/pl
   range, so a selection nested inside a `Describe`/`Context` keeps its place in the block structure.
 - `:ShellSpecFormatAsync` - Format the buffer on the next event-loop tick (Neovim only)
 
-`gq` also works: `formatexpr` is set for shellspec buffers and formats the motion's range.
+On Neovim 0.10+, `gq` also works: `formatexpr` is set for shellspec buffers and formats the motion's range.
+The VimScript fallback (Vim, and Neovim before 0.10) does not set `formatexpr`, so there `gq` does Vim's
+default text formatting; use `:ShellSpecFormatRange` instead.
 
 Full reference: `:help shellspec`
 

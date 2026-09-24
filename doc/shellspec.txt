@@ -84,8 +84,10 @@ The plugin does not set 'foldmethod'; configure folding yourself if wanted.
                         keystroke; the formatting itself is still synchronous
                         once it runs. Neovim only.
 
-'formatexpr' is set for shellspec buffers, so |gq| reformats the motion's range
-through the same code path.
+On Neovim 0.10+, 'formatexpr' is set for shellspec buffers, so |gq| reformats
+the motion's range through the same code path. The VimScript fallback (Vim,
+and Neovim before 0.10) does not set 'formatexpr'; there |gq| does Vim's
+default text formatting, so use |:ShellSpecFormatRange| instead.
 
 ==============================================================================
 4. CONFIGURATION (NEOVIM)                            *shellspec-configuration*
