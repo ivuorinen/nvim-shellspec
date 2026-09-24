@@ -430,7 +430,8 @@ end)
 -- the delimiter, so `EOF` never closed the HEREDOC. `%%(` is a literal percent
 -- followed by a real capture; `%(` is an escaped paren and no capture at all.
 -- Parens inside a `[...]` set are set members, not captures, including after a
--- leading `]` member.
+-- leading `]` member. Malformed patterns -- unclosed or unopened capture,
+-- nested captures, trailing `%`, unterminated set -- are rejected as well.
 assert_equal(
   { "<<%%(x)", "<<([%a_]+)", "<<'([%w_()]+)'", "<<([]()]+)", "<<[(](x)" },
   config.validate_heredoc_patterns({
@@ -442,9 +443,23 @@ assert_equal(
     "<<'([%w_()]+)'",
     "<<([]()]+)",
     "<<[(](x)",
+    "<<(%w+",
+    "<<(x))",
+    "<<((x))",
+    "<<(x)%",
+    "<<(%w+)[abc",
   }),
-  "heredoc_patterns need exactly one non-position capture"
+  "heredoc_patterns need exactly one well-formed non-position capture"
 )
+
+-- A malformed pattern used to pass validation and then raise "unfinished
+-- capture" from format_lines. It is now dropped, the defaults apply, and the
+-- buffer is formatted.
+with_config({ heredoc_patterns = { "<<(%w+" } }, function()
+  local ok, result = pcall(format.format_lines, { 'It "x"', "When call cat <<EOF", "body", "EOF", "End" })
+  assert_equal(true, ok, "malformed heredoc_pattern does not make format_lines raise")
+  assert_equal({ 'It "x"', "  When call cat <<EOF", "body", "EOF", "End" }, ok and result or {}, "malformed heredoc_pattern falls back to the defaults")
+end)
 
 -- A set containing parens stays usable end to end: the quoted delimiter
 -- `A(B)` keeps its HEREDOC body verbatim instead of falling back to defaults.

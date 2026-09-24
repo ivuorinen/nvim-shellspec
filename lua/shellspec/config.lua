@@ -40,11 +40,20 @@ M.config = {}
 --- the first capture as the delimiter: `"<<(E)(OF)"` yielded "E", which no
 --- terminator line equals. A position capture `()` yields a number, which no
 --- terminator line equals either.
+---
+--- Malformed patterns are rejected too -- an unclosed or unopened capture, a
+--- trailing `%`, a set with no closing `]`. Lua reports these only when a match
+--- reaches the broken part, so they passed validation and then raised
+--- "unfinished capture" and the like from format_lines, aborting the format
+--- instead of taking the warn-and-fall-back path here.
 local function has_single_capture(pattern)
-  local count, i, n = 0, 1, #pattern
+  local count, open, i, n = 0, false, 1, #pattern
   while i <= n do
     local ch = pattern:sub(i, i)
     if ch == "%" then
+      if i == n then
+        return false
+      end
       i = i + 2
     elseif ch == "[" then
       i = i + 1
@@ -57,18 +66,27 @@ local function has_single_capture(pattern)
       while i <= n and pattern:sub(i, i) ~= "]" do
         i = i + (pattern:sub(i, i) == "%" and 2 or 1)
       end
+      if i > n then
+        return false
+      end
       i = i + 1
     else
       if ch == "(" then
-        if pattern:sub(i + 1, i + 1) == ")" then
+        if open or pattern:sub(i + 1, i + 1) == ")" then
           return false
         end
+        open = true
         count = count + 1
+      elseif ch == ")" then
+        if not open then
+          return false
+        end
+        open = false
       end
       i = i + 1
     end
   end
-  return count == 1
+  return count == 1 and not open
 end
 
 --- Drop HEREDOC patterns that do not carry exactly one capture group, warning
