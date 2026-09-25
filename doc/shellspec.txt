@@ -1,0 +1,197 @@
+*shellspec.txt*  Language support and formatter for the ShellSpec DSL
+
+Author:  Ismo Vuorinen
+License: MIT
+Repo:    https://github.com/ivuorinen/nvim-shellspec
+
+==============================================================================
+CONTENTS                                                  *shellspec-contents*
+
+    1. Introduction .......................... |shellspec-introduction|
+    2. Filetype detection .................... |shellspec-filetype|
+    3. Commands .............................. |shellspec-commands|
+    4. Configuration (Neovim) ................ |shellspec-configuration|
+    5. Configuration (Vim) ................... |shellspec-vim|
+    6. HEREDOC handling ...................... |shellspec-heredoc|
+    7. Health check .......................... |shellspec-health|
+
+==============================================================================
+1. INTRODUCTION                                       *shellspec-introduction*
+
+Syntax highlighting, indentation and formatting for the ShellSpec BDD testing
+framework's DSL.
+
+Neovim 0.10 or newer uses the Lua implementation under `lua/shellspec/`. Older
+Neovim and Vim fall back to `autoload/shellspec.vim`, which implements the same
+formatting rules. (The Lua path needs 0.10: |vim.health.start()| and the `buf`
+key of |nvim_set_option_value()| do not exist earlier.)
+
+Blocks are opened by Describe, Context, ExampleGroup, It, Specify, Example
+(and their x/f prefixed forms), the hooks, Mock, Data, Data:raw, Data:expand,
+Parameters and Parameters:block/value/matrix/dynamic, and closed by End.
+
+A standalone formatter is also provided at `bin/shellspec-format`, for use
+outside an editor: >
+
+    shellspec-format < input.spec.sh > output.spec.sh
+    shellspec-format file1.spec.sh file2.spec.sh
+<
+==============================================================================
+2. FILETYPE DETECTION                                     *shellspec-filetype*
+
+The `shellspec` filetype is set for buffers matching:
+
+    *_spec.sh           any directory, any depth
+    *.spec.sh           any directory, any depth
+    spec/*.sh           a spec/ directory, at any depth
+
+The first two are matched against the basename, so a spec named `*_spec.sh` or
+`*.spec.sh` is detected wherever it lives, including under test/.
+
+The spec/ rule is registered twice, as `spec/*.sh` and `*/spec/*.sh`. Vim
+matches a pattern containing a slash against both the name as typed and the
+full path: the bare form catches `nvim spec/foo.sh`, the `*/` form catches
+`nvim /abs/path/spec/foo.sh`. `*` spans `/` in autocmd patterns, so both cover
+arbitrarily deep nesting.
+
+CHANGED SINCE 2.0.2: a `test/*.sh` rule used to claim every shell script under
+a test/ directory, including ordinary scripts that are not specs. It has been
+removed. Spec files under test/ are still detected by the basename rules. To
+restore the old behaviour: >
+
+    autocmd BufRead,BufNewFile test/*.sh set filetype=shellspec
+<
+Use `set filetype=`, not |:setfiletype|: the runtime's own `*.sh` rule has
+already set `sh`, and |:setfiletype| never overrides an existing filetype.
+
+The plugin does not set 'foldmethod'; configure folding yourself if wanted.
+==============================================================================
+3. COMMANDS                                               *shellspec-commands*
+
+                                                              *:ShellSpecFormat*
+:ShellSpecFormat        Reformat the whole buffer.
+
+                                                         *:ShellSpecFormatRange*
+:{range}ShellSpecFormatRange
+                        Reformat {range} only. The indent level is taken from
+                        the first line of the range, so a selection whose
+                        enclosing Describe/Context lies outside it keeps its
+                        place in the block structure.
+
+                                                         *:ShellSpecFormatAsync*
+:ShellSpecFormatAsync   Reformat the whole buffer on the next event-loop tick.
+                        Defers the work so a large buffer does not block the
+                        keystroke; the formatting itself is still synchronous
+                        once it runs. Neovim only.
+
+On Neovim 0.10+, 'formatexpr' is set for shellspec buffers, so |gq| reformats
+the motion's range through the same code path. The VimScript fallback (Vim,
+and Neovim before 0.10) does not set 'formatexpr'; there |gq| does Vim's
+default text formatting, so use |:ShellSpecFormatRange| instead.
+
+==============================================================================
+4. CONFIGURATION (NEOVIM)                            *shellspec-configuration*
+
+>
+    require("shellspec").setup({
+      auto_format = false,
+      indent_size = 2,
+      use_spaces = true,
+      indent_comments = true,
+      heredoc_patterns = {
+        "<<%-?%s*\\?([%a_][%w_]*)",
+        "<<%-?%s*'([^']+)'",
+        '<<%-?%s*"([^"]+)"',
+      },
+    })
+<
+                                                       *shellspec-auto_format*
+auto_format ~
+    Reformat `*.spec.sh` and `*_spec.sh` buffers on |BufWritePre|.
+    Default: `false`
+
+                                                       *shellspec-indent_size*
+indent_size ~
+    Spaces per indent level. Also applied to 'shiftwidth' and 'tabstop' in
+    shellspec buffers. Default: `2`
+
+                                                        *shellspec-use_spaces*
+use_spaces ~
+    Indent with spaces. When `false`, one tab per level is used and
+    `indent_size` does not apply. Also sets 'expandtab'. Default: `true`
+
+                                                   *shellspec-indent_comments*
+indent_comments ~
+    Align comments to the surrounding block level. When `false`, comment lines
+    keep the column they were written at. Default: `true`
+
+                                                  *shellspec-heredoc_patterns*
+heredoc_patterns ~
+    Lua patterns recognising a HEREDOC opener. Each must carry exactly one
+    capture group holding the delimiter.
+
+    A pattern with no capture group is reported through |vim.notify| and
+    dropped; if that leaves none, the defaults are used. Without that guard
+    such a pattern would return the whole match -- "<<EOF" rather than "EOF" --
+    as the delimiter, which no terminator line can equal, and the formatter
+    would stop formatting at that line.
+
+    The list is replaced wholesale, not merged, so a shorter list does not
+    retain trailing defaults.
+
+Unknown keys are reported through |vim.notify| rather than ignored.
+
+                                                     *g:shellspec_debug*
+g:shellspec_debug ~
+    Emit formatting decisions through |vim.notify| at DEBUG level. Read by the
+    Lua implementation only; the VimScript fallback ignores it.
+    Default: unset
+
+==============================================================================
+5. CONFIGURATION (VIM)                                         *shellspec-vim*
+
+The VimScript fallback reads:
+
+                                                     *g:shellspec_auto_format*
+g:shellspec_auto_format ~
+    Reformat on |BufWritePre|. Default: `0`
+
+                                                 *g:shellspec_indent_comments*
+g:shellspec_indent_comments ~
+    Align comments to the block level. Default: `1`
+
+Indent width comes from 'shiftwidth' and 'expandtab' rather than from a plugin
+variable, so it follows whatever the buffer already uses. There is no
+VimScript equivalent of |shellspec-heredoc_patterns|; the fallback's pattern
+list is fixed.
+
+==============================================================================
+6. HEREDOC HANDLING                                        *shellspec-heredoc*
+
+Content inside `<<EOF`, `<< EOF`, `<<eof`, `<<\EOF`, `<<'EOF'`, `<<"EOF"` and
+`<<-EOF` is passed through byte for byte, including its original indentation.
+A line containing `((` never opens a HEREDOC, so the arithmetic shift in
+`$(( a << b ))` is formatted as an ordinary line.
+
+The terminator line is also left at its original column. This is deliberate:
+the shell requires a non-`<<-` HEREDOC delimiter at column 0, so indenting it
+to match the surrounding block would leave the HEREDOC unterminated and turn
+the rest of the file into HEREDOC body.
+
+Here-strings (`<<<`) are not HEREDOCs and are formatted as ordinary lines. A
+comment mentioning a delimiter, such as `# see <<EOF`, does not start a
+HEREDOC either.
+
+A line that both opens a block and a HEREDOC -- `It "x" <<EOF` -- does both.
+
+==============================================================================
+7. HEALTH CHECK                                             *shellspec-health*
+
+>
+    :checkhealth shellspec
+<
+Reports the Neovim version, which modules loaded, the active configuration,
+the settings of the buffer you ran it from, and whether the commands are
+registered. Run it from a spec buffer to see that buffer's settings.
+
+ vim:tw=78:ts=8:ft=help:norl:

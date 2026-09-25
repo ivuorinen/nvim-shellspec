@@ -19,25 +19,33 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FORMATTER="$PROJECT_ROOT/bin/shellspec-format"
 
+# Temp files are registered here so an interrupted run does not leave them in
+# $TMPDIR; the per-test `rm -f` only covers the success path.
+# `rm -rf` because the symlink test registers a directory.
+TMPFILES=()
+cleanup() { [[ ${#TMPFILES[@]} -gt 0 ]] && rm -rf -- "${TMPFILES[@]}"; }
+# INT/TERM exit explicitly (EXIT then runs cleanup): a handler that only
+# cleans up lets bash resume, so an interrupted run kept executing cases.
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 # Helper functions
 print_test() {
   echo -e "${YELLOW}[BIN-TEST]${NC} $1"
-  # Force flush
-  exec 1>&1
 }
 
+# Counters use $(( )) rather than ((x++)): under `set -e` a bare ((x++)) exits 1
+# when x is 0, because post-increment evaluates to the old value -- which
+# aborted the whole suite at its first passing assertion.
 print_pass() {
   echo -e "${GREEN}[PASS]${NC} $1"
-  ((TESTS_PASSED++))
-  # Force flush
-  exec 1>&1
+  TESTS_PASSED=$((TESTS_PASSED + 1))
 }
 
 print_fail() {
   echo -e "${RED}[FAIL]${NC} $1"
-  ((TESTS_FAILED++))
-  # Force flush
-  exec 1>&1
+  TESTS_FAILED=$((TESTS_FAILED + 1))
 }
 
 print_summary() {
@@ -70,6 +78,7 @@ run_format_test() {
   input_file=$(mktemp -t "bin_format_input_XXXXXX.spec.sh")
   expected_file=$(mktemp -t "bin_format_expected_XXXXXX.spec.sh")
   actual_file=$(mktemp -t "bin_format_actual_XXXXXX.spec.sh")
+  TMPFILES+=("$input_file" "$expected_file" "$actual_file")
 
   # Debug: Show what we're testing
   if [[ -n "${DEBUG:-}" ]]; then
@@ -123,6 +132,7 @@ test_cli_options() {
   input_file=$(mktemp -t "bin_format_cli_input_XXXXXX.spec.sh")
   expected_file=$(mktemp -t "bin_format_cli_expected_XXXXXX.spec.sh")
   actual_file=$(mktemp -t "bin_format_cli_actual_XXXXXX.spec.sh")
+  TMPFILES+=("$input_file" "$expected_file" "$actual_file")
 
   # Write test data to files
   printf "%s\n" "$input_content" >"$input_file"
@@ -210,7 +220,7 @@ End' \
     When call cat <<EOF
   This should be preserved
     Even nested
-    EOF
+EOF
     The output should include "test"
   End
 End'
@@ -319,5 +329,172 @@ if timeout 5 echo 'test' | "$FORMATTER" --unknown-option >/dev/null 2>&1; then
 else
   print_pass "Correctly rejected unknown option"
 fi
+
+# Regression: a bare ((indent_level++)) under `set -e` exits 1 the first time a
+# block keyword is seen, so stdin mode emitted only its first line. Asserts the
+# whole input comes back, not just that the exit status is 0.
+print_test "Testing stdin mode emits every line"
+stdin_out=$(printf 'Describe "x"\nIt "y"\nWhen call echo hi\nEnd\nEnd\n' | timeout 10 "$FORMATTER")
+stdin_lines=$(printf '%s\n' "$stdin_out" | wc -l)
+if [[ $stdin_lines -eq 5 ]]; then
+  print_pass "stdin mode emitted all 5 lines"
+else
+  print_fail "stdin mode emitted $stdin_lines of 5 lines"
+  printf '%s\n' "$stdin_out"
+fi
+
+# Regression: mktemp creates 0600 and mv carries that onto the destination
+# inode, so in-place formatting used to strip the executable bit.
+print_test "Testing in-place formatting preserves file mode"
+mode_file=$(mktemp -t "bin_format_mode_XXXXXX.spec.sh")
+TMPFILES+=("$mode_file")
+printf 'Describe "x"\nIt "y"\nEnd\nEnd\n' >"$mode_file"
+chmod 755 "$mode_file"
+timeout 10 "$FORMATTER" "$mode_file"
+# GNU stat first: on BSD/macOS `-c` is rejected and the `-f` form runs. The
+# reverse order silently succeeds on GNU, where `-f` means --file-system.
+actual_mode=$(stat -c '%a' "$mode_file" 2>/dev/null || stat -f '%Lp' "$mode_file")
+if [[ "$actual_mode" == "755" ]]; then
+  print_pass "In-place formatting preserved mode 755"
+else
+  print_fail "In-place formatting changed mode 755 -> $actual_mode"
+fi
+rm -f "$mode_file"
+
+# Regression: `<<<` contains `<<"` at offset 1 and used to match the
+# double-quoted HEREDOC pattern, after which nothing was formatted.
+# shellcheck disable=SC2016  # $input is literal spec text, not a shell expansion
+run_format_test \
+  "Here-string is not a HEREDOC" \
+  'Describe "x"
+It "y"
+When call grep foo <<<"$input"
+The status should be success
+End
+End' \
+  'Describe "x"
+  It "y"
+    When call grep foo <<<"$input"
+    The status should be success
+  End
+End'
+
+# Regression: the HEREDOC check used to run before the comment check, so a
+# comment merely naming a delimiter stopped all further formatting.
+run_format_test \
+  "Comment mentioning a HEREDOC is not a HEREDOC" \
+  'Describe "x"
+# note: uses <<EOF here
+It "y"
+When call echo hi
+End
+End' \
+  'Describe "x"
+  # note: uses <<EOF here
+  It "y"
+    When call echo hi
+  End
+End'
+
+# Regression: the HEREDOC branch used to win over the block-keyword check, so a
+# line that was both never opened its block and End misaligned.
+run_format_test \
+  "Block keyword that also opens a HEREDOC" \
+  'Describe "x"
+It "y" <<EOF
+body
+EOF
+End
+End' \
+  'Describe "x"
+  It "y" <<EOF
+body
+EOF
+  End
+End'
+
+# Regression: `while read` skipped a final line with no trailing newline, so
+# stdin mode dropped it and in-place mode deleted it from the file.
+print_test "Testing a final line without a trailing newline is kept"
+nonl_out=$(printf 'Describe "x"\nEnd' | timeout 10 "$FORMATTER")
+nonl_file=$(mktemp -t "bin_format_nonl_XXXXXX.spec.sh")
+TMPFILES+=("$nonl_file")
+printf 'Describe "x"\nEnd' >"$nonl_file"
+timeout 10 "$FORMATTER" "$nonl_file"
+if [[ "$nonl_out" == $'Describe "x"\nEnd' && "$(cat "$nonl_file")" == $'Describe "x"\nEnd' ]]; then
+  print_pass "stdin and in-place modes keep the unterminated last line"
+else
+  print_fail "unterminated last line lost: stdin='$nonl_out' file='$(cat "$nonl_file")'"
+fi
+rm -f "$nonl_file"
+
+# Regression: in-place mode ignored write errors, and the truncated temp file
+# replaced the original. `ulimit -f 0` with SIGXFSZ ignored makes every write
+# fail with EFBIG, the same failure a full disk produces.
+print_test "Testing in-place mode keeps the original when writing fails"
+wfail_file=$(mktemp -t "bin_format_wfail_XXXXXX.spec.sh")
+TMPFILES+=("$wfail_file")
+printf 'Describe "x"\nIt "y"\nEnd\nEnd\n' >"$wfail_file"
+if bash -c 'trap "" XFSZ; ulimit -f 0; exec "$1" "$2"' _ "$FORMATTER" "$wfail_file" 2>/dev/null; then
+  print_fail "write failure exited 0"
+elif [[ "$(cat "$wfail_file")" == $'Describe "x"\nIt "y"\nEnd\nEnd' ]]; then
+  print_pass "write failure exits non-zero and leaves the file intact"
+else
+  print_fail "write failure changed the file to: $(cat "$wfail_file")"
+fi
+rm -f "$wfail_file"
+
+# Regression: renaming onto a symlink replaced it with a regular file and left
+# the target unformatted.
+print_test "Testing in-place formatting through a symlink"
+link_dir=$(mktemp -d)
+TMPFILES+=("$link_dir")
+printf 'Describe "x"\nIt "y"\nEnd\nEnd\n' >"$link_dir/real_spec.sh"
+ln -s real_spec.sh "$link_dir/link_spec.sh"
+timeout 10 "$FORMATTER" "$link_dir/link_spec.sh"
+if [[ -L "$link_dir/link_spec.sh" && "$(sed -n 2p "$link_dir/real_spec.sh")" == '  It "y"' ]]; then
+  print_pass "symlink kept and its target formatted"
+else
+  print_fail "symlink replaced or target unformatted"
+fi
+rm -rf "$link_dir"
+
+# Regression: a leading zero made bash read --indent-size as octal.
+test_cli_options \
+  "Indent size with a leading zero is decimal" \
+  "--indent-size 010" \
+  'Describe "test"
+It "should work"
+End
+End' \
+  'Describe "test"
+          It "should work"
+          End
+End'
+
+# Regression: `<< EOF`, lowercase and backslash-quoted delimiters were not
+# detected, so the terminator was indented and the HEREDOC never closed.
+run_format_test \
+  "POSIX HEREDOC spellings" \
+  'Describe "x"
+It "y"
+When call cat << EOF
+  body
+EOF
+When call cat <<\end
+  body
+end
+End
+End' \
+  'Describe "x"
+  It "y"
+    When call cat << EOF
+  body
+EOF
+    When call cat <<\end
+  body
+end
+  End
+End'
 
 print_summary

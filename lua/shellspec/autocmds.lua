@@ -3,53 +3,65 @@ local config = require("shellspec.config")
 local format = require("shellspec.format")
 local M = {}
 
--- Autocommand group
-local augroup = vim.api.nvim_create_augroup("ShellSpec", { clear = true })
+--- Autocommand group, recreated by each M.setup() call.
+---
+--- Created inside setup() rather than at module load so a second setup() clears
+--- the first's registrations. With the group created once at load, plugin/
+--- calling setup() and the user's own setup() each appended a full set, leaving
+--- every detection autocmd registered twice and setup_buffer running twice per
+--- FileType event.
+local augroup = nil
 
 -- Setup buffer-local settings
 local function setup_buffer(bufnr)
-  -- Set buffer options
   vim.api.nvim_set_option_value("commentstring", "# %s", { buf = bufnr })
   vim.api.nvim_set_option_value("shiftwidth", config.get("indent_size"), { buf = bufnr })
   vim.api.nvim_set_option_value("tabstop", config.get("indent_size"), { buf = bufnr })
   vim.api.nvim_set_option_value("expandtab", config.get("use_spaces"), { buf = bufnr })
 
-  -- Set window-local options (foldmethod is window-local)
-  vim.api.nvim_set_option_value("foldmethod", "indent", { win = 0 })
+  -- 'foldmethod' is deliberately left alone. Forcing indent folds overrode the
+  -- user's own folding and, with the default 'foldlevel' 0, opened every spec
+  -- fully folded -- and closed folds widen any :{range} to whole folds.
 
-  -- Buffer-local commands
+  -- bar = true on every command so `:ShellSpecFormat | w` chains instead of
+  -- failing with E488.
   vim.api.nvim_buf_create_user_command(bufnr, "ShellSpecFormat", function()
     format.format_buffer(bufnr)
-  end, { desc = "Format ShellSpec buffer" })
+  end, { bar = true, desc = "Format ShellSpec buffer" })
 
   vim.api.nvim_buf_create_user_command(bufnr, "ShellSpecFormatRange", function(opts)
     format.format_selection(bufnr, opts.line1, opts.line2)
   end, {
+    bar = true,
     range = true,
     desc = "Format ShellSpec selection",
   })
 
-  -- Optional: Set up LSP-style formatting
-  if vim.fn.has("nvim-0.8") == 1 then
-    vim.api.nvim_buf_set_option(bufnr, "formatexpr", 'v:lua.require("shellspec.format").format_buffer()')
-  end
+  -- Range-aware: 'formatexpr' is called for the range gq was given, so it must
+  -- not reformat the whole buffer.
+  vim.api.nvim_set_option_value("formatexpr", "v:lua.require'shellspec.format'.formatexpr()", { buf = bufnr })
 end
 
--- Create all autocommands
+-- Create all autocommands and commands
 function M.setup()
-  -- Create global commands first
+  augroup = vim.api.nvim_create_augroup("ShellSpec", { clear = true })
+
   vim.api.nvim_create_user_command("ShellSpecFormat", function()
     format.format_buffer()
-  end, { desc = "Format current ShellSpec buffer" })
+  end, { bar = true, desc = "Format current ShellSpec buffer" })
 
   vim.api.nvim_create_user_command("ShellSpecFormatRange", function(cmd_opts)
     format.format_selection(0, cmd_opts.line1, cmd_opts.line2)
   end, {
+    bar = true,
     range = true,
     desc = "Format ShellSpec selection",
   })
 
-  -- FileType detection and setup
+  vim.api.nvim_create_user_command("ShellSpecFormatAsync", function()
+    format.format_buffer_async()
+  end, { bar = true, desc = "Format current ShellSpec buffer on the next event-loop tick" })
+
   vim.api.nvim_create_autocmd("FileType", {
     group = augroup,
     pattern = "shellspec",
@@ -65,7 +77,6 @@ function M.setup()
       group = augroup,
       pattern = { "*.spec.sh", "*_spec.sh" },
       callback = function(args)
-        -- Only format if it's a shellspec buffer
         local filetype = vim.api.nvim_get_option_value("filetype", { buf = args.buf })
         if filetype == "shellspec" then
           format.format_buffer(args.buf)
@@ -75,41 +86,21 @@ function M.setup()
     })
   end
 
-  -- Enhanced filetype detection with better patterns
-  vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
-    group = augroup,
-    pattern = {
-      "*_spec.sh",
-      "*.spec.sh",
-      "spec/*.sh",
-      "test/*.sh",
-    },
-    callback = function(args)
-      -- Set filetype to shellspec
-      vim.api.nvim_set_option_value("filetype", "shellspec", { buf = args.buf })
-    end,
-    desc = "Detect ShellSpec files",
-  })
-
-  -- Additional pattern for nested spec directories
-  vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
-    group = augroup,
-    pattern = "**/spec/**/*.sh",
-    callback = function(args)
-      vim.api.nvim_set_option_value("filetype", "shellspec", { buf = args.buf })
-    end,
-    desc = "Detect ShellSpec files in nested spec directories",
-  })
+  -- Filetype detection lives only in ftdetect/shellspec.vim, which Neovim and
+  -- Vim both source. A second copy here drifted from it in semantics (forced
+  -- `filetype=` vs `setfiletype`) and had to be edited in lockstep.
 end
 
 -- Cleanup function
 function M.cleanup()
-  vim.api.nvim_clear_autocmds({ group = augroup })
+  if augroup then
+    vim.api.nvim_clear_autocmds({ group = augroup })
+  end
 end
 
--- Update configuration and refresh autocommands
+--- Re-register everything against the current configuration.
+--- setup() recreates the group with clear = true, so this needs no cleanup pass.
 function M.refresh()
-  M.cleanup()
   M.setup()
 end
 

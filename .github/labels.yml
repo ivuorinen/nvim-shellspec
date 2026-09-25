@@ -1,0 +1,98 @@
+---
+# Label manifest for nvim-shellspec, synced by .github/workflows/sync-labels.yml
+# (ivuorinen/actions/sync-labels). Format: a list of {name, color, description}.
+#
+# The sync runs with prune: true (the action's default), so any label NOT listed
+# here is DELETED from the repository, and deleting a label removes it from every
+# issue and PR carrying it. Before removing an entry, check nothing uses it:
+#
+#   gh pr list --state all --limit 500 --json labels --jq '.[].labels[].name'
+#   gh issue list --state all --limit 500 --json labels --jq '.[].labels[].name'
+#
+# This set is scoped to what this project actually is -- a Neovim plugin with a
+# standalone shell formatter. The upstream ivuorinen label set is broader and
+# homelab-oriented; its area/*, cluster/*, renovate/{ansible,container,helm,
+# terraform,grafana-dashboard} and translations labels cannot apply here and are
+# deliberately absent.
+
+#   ╭──────────────────────────────────────────────────────────╮
+#   │  Applied automatically by Renovate                       │
+#   │  github>ivuorinen/renovate-config assigns these; they    │
+#   │  must exist or dependency PRs land unlabelled.           │
+#   ╰──────────────────────────────────────────────────────────╯
+- name: dependencies
+  color: 1d76db
+  description: Upgrade or downgrade of project dependencies.
+- name: renovate/github-action
+  color: 027fa0
+  description: Automated updates for GitHub Actions and workflows.
+- name: renovate/github-release
+  color: 027fa0
+  description: Automated updates based on new GitHub releases (pre-commit hooks).
+- name: type/major
+  color: f6412d
+  description: Major changes or new features.
+- name: type/minor
+  color: ff9800
+  description: Minor changes or improvements.
+- name: type/patch
+  color: ffec19
+  description: Small changes or fixes.
+- name: type/digest
+  color: ffec19
+  description: Digest of multiple changes or issues.
+
+#   ╭──────────────────────────────────────────────────────────╮
+#   │  Required by the stale workflow                          │
+#   │  ivuorinen/actions/stale applies 'stale' and exempts     │
+#   │  'no-stale' (issues + PRs) and 'help-wanted' (issues).   │
+#   │  Pruning any of these silently breaks the exemptions.    │
+#   ╰──────────────────────────────────────────────────────────╯
+- name: stale
+  color: fef2c0
+  description: There has not been activity on this issue or PR for quite some time.
+- name: no-stale
+  color: fef2c0
+  description: This issue or PR is exempted from the stale bot.
+- name: help-wanted
+  color: 0e8a16
+  description: We need some extra helping hands or expertise in order to resolve this.
+
+#   ╭──────────────────────────────────────────────────────────╮
+#   │  Applied by the issue templates                          │
+#   │  .github/ISSUE_TEMPLATE/*.md name these in frontmatter.  │
+#   ╰──────────────────────────────────────────────────────────╯
+- name: bugfix
+  color: ee0701
+  description: Inconsistencies or issues which will cause a problem for users or implementors.
+- name: enhancement
+  color: 1d76db
+  description: Enhancement of the code, not introducing new features.
+
+#   ╭──────────────────────────────────────────────────────────╮
+#   │  Applied by hand during triage and review                │
+#   ╰──────────────────────────────────────────────────────────╯
+- name: breaking-change
+  color: ee0701
+  description: A breaking change for existing users, requiring a major version bump.
+- name: new-feature
+  color: 0e8a16
+  description: New features or options.
+- name: documentation
+  color: 0052cc
+  description: README, doc/shellspec.txt, or docstrings.
+- name: refactor
+  color: 1d76db
+  description: Improvement of existing code, not introducing new features.
+- name: performance
+  color: 1d76db
+  description: Improving performance, not introducing new features.
+- name: maintenance
+  color: 2af79e
+  description: Generic maintenance tasks.
+- name: security
+  color: ee0701
+  description: Marks a security issue that needs to be resolved asap.
+- name: ci
+  color: 1d76db
+  description: Work that improves the continuous integration and linting setup.

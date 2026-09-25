@@ -12,7 +12,7 @@ ShellSpec is a BDD (Behavior-Driven Development) testing framework for shell scr
 - **📐 Smart indentation** for block structures  
 - **📄 Enhanced filetype detection** for `*_spec.sh`, `*.spec.sh`, `spec/*.sh`, `test/*.sh`, and nested spec directories
 - **✨ Advanced formatting** with HEREDOC and comment support
-- **⚡ Async formatting** to prevent blocking (Neovim 0.7+)
+- **⚡ Async formatting** to prevent blocking (Neovim 0.10+)
 - **🔄 Backward compatibility** with Vim and older Neovim versions
 
 ## Advanced Formatting Features
@@ -24,14 +24,14 @@ ShellSpec is a BDD (Behavior-Driven Development) testing framework for shell scr
 ## Tech Stack
 
 - **Primary language**: Vim script (VimL) + Lua (Neovim)
-- **Target environment**: Neovim 0.7+ (with Vim fallback)
+- **Target environment**: Neovim 0.10+ (with Vim fallback)
 - **Architecture**: Modular Lua implementation with VimScript compatibility layer
 - **Shell scripting**: Bash (for standalone formatter in `bin/shellspec-format`)
 - **Configuration formats**: YAML, JSON, EditorConfig
 
 ## Dual Implementation
 
-- **Neovim 0.7+**: Modern Lua implementation with native APIs
+- **Neovim 0.10+**: Modern Lua implementation with native APIs
 - **Vim/Older Neovim**: Enhanced VimScript with same formatting features
 
 ## Target Files

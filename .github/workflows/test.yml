@@ -1,0 +1,82 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  merge_group:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  test:
+    name: Test (Neovim ${{ matrix.nvim }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # v0.10.0 is the declared floor (plugin/shellspec.vim gates on
+        # has('nvim-0.10'): vim.health.start/ok and nvim_set_option_value's
+        # `buf` key do not exist earlier); stable catches API removals such as
+        # the vim.health.report_* family that broke :checkhealth.
+        nvim: ["v0.10.0", "stable"]
+
+    steps:
+      # persist-credentials: false -- neither job pushes, so the token is not
+      # left in .git/config for make test and third-party binaries to read.
+      - name: ⤵️ Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: 🔧 Install Neovim ${{ matrix.nvim }}
+        uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1.6.1
+        with:
+          neovim: true
+          version: ${{ matrix.nvim }}
+
+      # The integration suite exercises the VimScript fallback path, which only
+      # runs under vim proper -- ubuntu-latest ships it, but assert it rather
+      # than letting the suite silently skip that test.
+      - name: 🔍 Verify vim is available for the fallback tests
+        run: command -v vim
+
+      - name: 🧪 Run test suite
+        run: make test
+
+  lint:
+    name: Lint (pre-commit hooks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: ⤵️ Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Installs the versions pinned in mise.toml (prek and luacheck).
+      - name: 🔧 Install pinned tools
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+
+      # Every hook in .pre-commit-config.yaml, luacheck included. MegaLinter
+      # (via pr-lint) covers only YAML/Markdown/JSON, so without this stylua,
+      # shellcheck, shfmt and actionlint ran only for contributors who had
+      # installed the hooks locally.
+      - name: 🔍 Run all hooks
+        run: mise exec -- prek run --all-files --show-diff-on-failure

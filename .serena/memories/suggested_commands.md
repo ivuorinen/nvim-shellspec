@@ -65,10 +65,10 @@ luacheck lua/shellspec/
 
 ```bash
 # Create test file
-touch test_example.spec.sh
+touch /tmp/scratch.spec.sh
 
 # Test in Neovim
-nvim test_example.spec.sh
+nvim /tmp/scratch.spec.sh   # create your own scratch spec
 # Verify filetype: :set filetype?
 # Test formatting: :ShellSpecFormat
 # Test health check: :checkhealth shellspec
@@ -144,7 +144,7 @@ rg -t sh "Describe|Context|It" spec/
 ### Standard Development
 
 1. Make changes to Vim script or Lua files
-2. Test with sample ShellSpec files (`test_example.spec.sh`)
+2. Test with a scratch ShellSpec file you create (the repo keeps no committed `.spec.sh` fixtures)
 3. Run `pre-commit run --all-files` before committing
 4. Fix any linting issues
 5. Test in both Neovim (Lua path) and Vim (VimScript path)

@@ -14,7 +14,10 @@ on:
     - cron: '34 5 * * *' # Run every day at 05:34 AM UTC
   workflow_call:
   workflow_dispatch:
-  merge_group:
+  # No merge_group trigger: a merge-queue run checks out the PR's proposed
+  # labels.yml and the sync (prune: true) applies it -- deleting labels --
+  # before the PR has merged, and it stays applied if the PR never does. The
+  # push-to-main trigger above syncs once the change has actually landed.
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -33,9 +36,12 @@ jobs:
       issues: write
 
     steps:
+      # persist-credentials: false -- sync-labels takes its own token input and
+      # talks to the API, so the checkout need not leave a write-scoped token in
+      # .git/config.
       - name: ⤵️ Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
       - name: ⤵️ Sync Latest Labels Definitions
-        uses: ivuorinen/actions/sync-labels@865910364be1519fdf39e036fad95bb7c9d10177 # v2026.06.06
+        uses: ivuorinen/actions/sync-labels@6a8c40d9c5ff01b901d382b0ef86d432215aae2a # v2026.09.09

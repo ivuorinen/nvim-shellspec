@@ -145,7 +145,7 @@ endfunction
 
 ```vim
 " Detect environment and choose implementation
-if has('nvim-0.7')
+if has('nvim-0.10')
   " Use Lua implementation
   lua require('module').function()
 else

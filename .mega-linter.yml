@@ -2,34 +2,46 @@
 # Configuration file for MegaLinter
 # See all available variables at
 # https://megalinter.io/configuration/ and in linters documentation
+#
+# Consumed by .github/workflows/pr-lint.yml, which calls
+# ivuorinen/actions/pr-lint -- that action runs
+# oxsecurity/megalinter/flavors/cupcake and reads this file from the repo root.
+#
+# MegaLinter resolves environment variables ahead of this file, so anything the
+# pr-lint action sets in the MegaLinter step's `env:` block cannot be overridden
+# here. That currently covers VALIDATE_ALL_CODEBASE (forced to false, i.e. only
+# the diff against the base branch is linted), APPLY_FIXES (forced to none) and
+# DISABLE (COPYPASTE,SPELL). Setting them here would be read as configuration
+# that does something when it does not -- change them in the action instead.
 
-APPLY_FIXES: all
 SHOW_ELAPSED_TIME: false # Show elapsed time at the end of MegaLinter run
 PARALLEL: true
-VALIDATE_ALL_CODEBASE: true
 FILEIO_REPORTER: false # Generate file.io report
 GITHUB_STATUS_REPORTER: true # Generate GitHub status report
 IGNORE_GENERATED_FILES: true # Ignore generated files
-JAVASCRIPT_DEFAULT_STYLE: prettier # Default style for JavaScript
 PRINT_ALPACA: false # Print Alpaca logo in console
 SARIF_REPORTER: true # Generate SARIF report
 SHOW_SKIPPED_LINTERS: false # Show skipped linters in MegaLinter log
 
-DISABLE_LINTERS:
-  - REPOSITORY_DEVSKIM
-
+# ENABLE_LINTERS is an allowlist: only the linters named here run, so there is
+# no need to DISABLE_LINTERS anything else.
+#
+# Scope is deliberately narrow. Lua, shell, VimScript and the workflow files are
+# covered by .pre-commit-config.yaml (stylua, shellcheck, shfmt, actionlint,
+# checkov), which runs locally and is the gate developers actually feel.
+# MegaLinter covers the formats pre-commit does not format-check on PRs.
 ENABLE_LINTERS:
   - YAML_YAMLLINT
-  - MARKDOWN_MARKDOWNLINT
   - YAML_PRETTIER
+  - MARKDOWN_MARKDOWNLINT
   - JSON_PRETTIER
-  - JAVASCRIPT_ES
-  - TYPESCRIPT_ES
 
+# Share the same config files as the pre-commit hooks, so a PR and a local
+# `make lint` cannot disagree about the rules.
 YAML_YAMLLINT_CONFIG_FILE: .yamllint.yml
 MARKDOWN_MARKDOWNLINT_CONFIG_FILE: .markdownlint.json
-JAVASCRIPT_ES_CONFIG_FILE: .eslintrc.json
-TYPESCRIPT_ES_CONFIG_FILE: .eslintrc.json
 
+# docs/audit/ holds generated nitpicker findings, not authored documentation.
+# .github/workflows is excluded because actionlint (via pre-commit) owns it.
 FILTER_REGEX_EXCLUDE: >
-  (node_modules|\.automation/test|docs/json-schemas|\.github/workflows)
+  (node_modules|docs/audit|\.github/workflows)

@@ -16,6 +16,7 @@ UNIT_PASSED=false
 INTEGRATION_PASSED=false
 GOLDEN_PASSED=false
 BIN_FORMAT_PASSED=false
+PARITY_PASSED=false
 
 # Get the script directory and project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -47,12 +48,15 @@ run_test_suite() {
     fi
     ;;
   "nvim_lua")
-    if nvim --headless -u NONE -c "set rtp+=." -c "luafile $test_script" -c "quit" 2>/dev/null; then
-      success=true
-    fi
-    ;;
-  "command")
-    if eval "$test_script"; then
+    # stderr is kept: a Lua error in the test file goes there, and discarding it
+    # left a failing suite indistinguishable from a passing one.
+    #
+    # dofile under pcall, not `luafile`: nvim still exits 0 when a -c command
+    # raises, so a test file that crashed before its own os.exit(1) reported
+    # PASSED. cquit turns the error into a non-zero exit status.
+    if nvim --headless -u NONE -c "set rtp+=." \
+      -c "lua local ok, err = pcall(dofile, '$test_script'); if not ok then io.stderr:write(tostring(err) .. '\n'); vim.cmd('cquit 1') end" \
+      -c "quit"; then
       success=true
     fi
     ;;
@@ -77,42 +81,19 @@ cd "$PROJECT_ROOT"
 # Run unit tests
 run_test_suite "Unit Tests" "nvim_lua" "tests/format_spec.lua" UNIT_PASSED
 
-# Run integration tests (with timeout to handle hanging)
-echo -e "${YELLOW}Running Integration Tests...${NC}"
-echo ""
-echo -e "${YELLOW}[NOTE]${NC} Integration tests may timeout due to nvim shell interaction issues"
-if timeout 30 ./tests/integration_test.sh >/dev/null 2>&1; then
-  echo -e "${GREEN}✓ Integration Tests PASSED${NC}"
-  INTEGRATION_PASSED=true
-else
-  echo -e "${YELLOW}⚠ Integration Tests timed out or failed${NC}"
-  echo "This is a known issue with test environment nvim interaction"
-  echo "Plugin functionality verified by unit tests and manual testing"
-  INTEGRATION_PASSED=true # Mark as passed since core functionality works
-fi
-echo ""
-echo -e "${BLUE}----------------------------------------${NC}"
-echo ""
+# Both suites are gated on their real exit status and keep their output.
+# They used to be forced to PASSED in the failure branch, with the failure
+# blamed on "nvim shell interaction" -- the actual cause was a bare ((x++))
+# under `set -e` aborting each suite after its first passing assertion.
+run_test_suite "Integration Tests" "script" "./tests/integration_test.sh" INTEGRATION_PASSED
 
-# Run golden master tests (with timeout to handle hanging)
-echo -e "${YELLOW}Running Golden Master Tests...${NC}"
-echo ""
-echo -e "${YELLOW}[NOTE]${NC} Golden master tests may timeout due to nvim shell interaction issues"
-if timeout 30 ./tests/golden_master_test.sh >/dev/null 2>&1; then
-  echo -e "${GREEN}✓ Golden Master Tests PASSED${NC}"
-  GOLDEN_PASSED=true
-else
-  echo -e "${YELLOW}⚠ Golden Master Tests timed out or failed${NC}"
-  echo "This is a known issue with test environment nvim interaction"
-  echo "Plugin functionality verified by unit tests and manual testing"
-  GOLDEN_PASSED=true # Mark as passed since core functionality works
-fi
-echo ""
-echo -e "${BLUE}----------------------------------------${NC}"
-echo ""
+run_test_suite "Golden Master Tests" "script" "./tests/golden_master_test.sh" GOLDEN_PASSED
 
 # Run bin formatter tests
 run_test_suite "Standalone Formatter Tests" "script" "./tests/bin_format_spec.sh" BIN_FORMAT_PASSED
+
+# Run cross-implementation parity tests
+run_test_suite "Parity Tests" "script" "./tests/parity_test.sh" PARITY_PASSED
 
 # Summary
 echo -e "${BLUE}========================================${NC}"
@@ -144,10 +125,17 @@ else
   echo -e "${RED}✗ Standalone Formatter Tests: FAILED${NC}"
 fi
 
+if [ "$PARITY_PASSED" = true ]; then
+  echo -e "${GREEN}✓ Parity Tests: PASSED${NC}"
+else
+  echo -e "${RED}✗ Parity Tests: FAILED${NC}"
+fi
+
 echo ""
 
 # Overall result
-if [ "$UNIT_PASSED" = true ] && [ "$INTEGRATION_PASSED" = true ] && [ "$GOLDEN_PASSED" = true ] && [ "$BIN_FORMAT_PASSED" = true ]; then
+if [ "$UNIT_PASSED" = true ] && [ "$INTEGRATION_PASSED" = true ] &&
+  [ "$GOLDEN_PASSED" = true ] && [ "$BIN_FORMAT_PASSED" = true ] && [ "$PARITY_PASSED" = true ]; then
   echo -e "${GREEN}🎉 ALL TESTS COMPLETED SUCCESSFULLY! 🎉${NC}"
   echo ""
   echo -e "${GREEN}The nvim-shellspec plugin is ready for use!${NC}"

@@ -14,6 +14,20 @@ NC='\033[0m' # No Color
 TESTS_PASSED=0
 TESTS_FAILED=0
 
+# Counters use $(( )) rather than ((x++)): under `set -e` a bare ((x++)) exits 1
+# when x is 0, because post-increment evaluates to the old value -- which
+# aborted the whole suite at its first passing assertion.
+
+# Temp files are registered here so an interrupted run does not leave them in
+# $TMPDIR; the per-test `rm -f` only covers the success path.
+TMPFILES=()
+cleanup() { [[ ${#TMPFILES[@]} -gt 0 ]] && rm -f "${TMPFILES[@]}"; }
+# INT/TERM exit explicitly (EXIT then runs cleanup): a handler that only
+# cleans up lets bash resume, so an interrupted run kept executing cases.
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 # Helper functions
 print_test() {
   echo -e "${YELLOW}[GOLDEN]${NC} $1"
@@ -21,12 +35,12 @@ print_test() {
 
 print_pass() {
   echo -e "${GREEN}[PASS]${NC} $1"
-  ((TESTS_PASSED++))
+  TESTS_PASSED=$((TESTS_PASSED + 1))
 }
 
 print_fail() {
   echo -e "${RED}[FAIL]${NC} $1"
-  ((TESTS_FAILED++))
+  TESTS_FAILED=$((TESTS_FAILED + 1))
 }
 
 print_summary() {
@@ -52,17 +66,28 @@ echo "Running nvim-shellspec golden master tests..."
 echo "Project root: $PROJECT_ROOT"
 echo ""
 
-# Test case definitions
-# Format: "test_name|input_content|expected_content"
-declare -a TEST_CASES=(
-  "basic_nesting|Describe \"basic nesting test\"
+# Test case definitions: add_case NAME INPUT EXPECTED.
+#
+# Parallel arrays rather than one "name|input|expected" string: ShellSpec data
+# blocks use `#|` lines and specs use shell pipes, and splitting on `|` cut
+# such a case at the wrong place.
+CASE_NAMES=()
+CASE_INPUTS=()
+CASE_EXPECTED=()
+add_case() {
+  CASE_NAMES+=("$1")
+  CASE_INPUTS+=("$2")
+  CASE_EXPECTED+=("$3")
+}
+
+add_case basic_nesting "Describe \"basic nesting test\"
 Context \"when something happens\"
 It \"should work correctly\"
 When call echo \"test\"
 The output should equal \"test\"
 End
 End
-End|Describe \"basic nesting test\"
+End" "Describe \"basic nesting test\"
   Context \"when something happens\"
     It \"should work correctly\"
       When call echo \"test\"
@@ -71,7 +96,7 @@ End|Describe \"basic nesting test\"
   End
 End"
 
-  "comments_and_hooks|Describe \"comments and hooks test\"
+add_case comments_and_hooks "Describe \"comments and hooks test\"
 # Top level comment
 BeforeAll
 setup_global_state
@@ -96,7 +121,7 @@ End
 AfterAll
 cleanup_global_state
 End
-End|Describe \"comments and hooks test\"
+End" "Describe \"comments and hooks test\"
   # Top level comment
   BeforeAll
     setup_global_state
@@ -123,7 +148,7 @@ End|Describe \"comments and hooks test\"
   End
 End"
 
-  "heredoc_complex|Describe \"complex HEREDOC test\"
+add_case heredoc_complex "Describe \"complex HEREDOC test\"
 Context \"with multiple HEREDOC types\"
 It \"handles regular HEREDOC\"
 When call cat <<EOF
@@ -148,43 +173,72 @@ SCRIPT
 The status should be success
 End
 End
-End|Describe \"complex HEREDOC test\"
+End" "Describe \"complex HEREDOC test\"
   Context \"with multiple HEREDOC types\"
     It \"handles regular HEREDOC\"
       When call cat <<EOF
 This should be preserved
   Even nested indentation
 Back to normal
-      EOF
+EOF
       The output should include \"preserved\"
     End
     It \"handles quoted HEREDOC\"
       When call cat <<'DATA'
 # Comments in heredoc should not be touched
 Some \$variable should not be expanded
-      DATA
+DATA
       The output should include \"variable\"
     End
     It \"handles double-quoted HEREDOC\"
       When call cat <<\"SCRIPT\"
 echo \"This is a script\"
 # Script comment
-      SCRIPT
+SCRIPT
       The status should be success
     End
   End
 End"
-)
+
+# Data blocks, mocks and pipes: exercises `#|` and `|` in case content, and the
+# Mock / Data:raw / Parameters:block openers.
+add_case blocks_and_pipes "Describe \"blocks\"
+Mock date
+echo 2019
+End
+It \"reads data\"
+Data:raw
+#|line one
+#|line two
+End
+When call cat | tr a b
+The output should be present
+End
+Parameters:block
+\"a\" 1
+End
+End" "Describe \"blocks\"
+  Mock date
+    echo 2019
+  End
+  It \"reads data\"
+    Data:raw
+      #|line one
+      #|line two
+    End
+    When call cat | tr a b
+    The output should be present
+  End
+  Parameters:block
+    \"a\" 1
+  End
+End"
 
 # Function to run a single test case
 run_test_case() {
-  local test_data="$1"
-
-  # Parse test data using parameter expansion (more reliable for multiline content)
-  local test_name="${test_data%%|*}"       # Everything before first |
-  local remaining="${test_data#*|}"        # Everything after first |
-  local input_content="${remaining%%|*}"   # Everything before next |
-  local expected_content="${remaining#*|}" # Everything after second |
+  local test_name="$1"
+  local input_content="$2"
+  local expected_content="$3"
 
   print_test "Testing $test_name"
 
@@ -193,8 +247,11 @@ run_test_case() {
   local expected_file
   local actual_file
   input_file=$(mktemp -t "shellspec_input_XXXXXX.spec.sh")
+  TMPFILES+=("${input_file}")
   expected_file=$(mktemp -t "shellspec_expected_XXXXXX.spec.sh")
+  TMPFILES+=("${expected_file}")
   actual_file=$(mktemp -t "shellspec_actual_XXXXXX.spec.sh")
+  TMPFILES+=("${actual_file}")
 
   # Write test data to files
   printf "%s\n" "$input_content" >"$input_file"
@@ -235,8 +292,8 @@ run_test_case() {
 }
 
 # Run all test cases
-for test_case in "${TEST_CASES[@]}"; do
-  run_test_case "$test_case"
+for i in "${!CASE_NAMES[@]}"; do
+  run_test_case "${CASE_NAMES[$i]}" "${CASE_INPUTS[$i]}" "${CASE_EXPECTED[$i]}"
 done
 
 print_summary

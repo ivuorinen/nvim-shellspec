@@ -6,151 +6,131 @@ local M = {}
 local State = {
   NORMAL = 1,
   IN_HEREDOC = 2,
-  IN_DATA_BLOCK = 3,
 }
 
--- HEREDOC detection patterns
-local function get_heredoc_patterns()
-  return config.get("heredoc_patterns")
+--- Lines that open a block, and so increase the indent of everything after them.
+---
+--- Block keywords require a following space and standalone hooks require end of
+--- line. Without those anchors an ordinary assignment such as `Items=3` matches
+--- `It` and opens a block that is never closed, cascading misindentation through
+--- the rest of the file.
+---
+--- `Mock`, `Data:raw`/`Data:expand` and the `Parameters:` variants open blocks
+--- too; without them their `End` closed the enclosing block instead.
+local BLOCK_PATTERNS = {
+  "^[xf]?Describe%s",
+  "^[xf]?Context%s",
+  "^[xf]?ExampleGroup%s",
+  "^[xf]?It%s",
+  "^[xf]?Specify%s",
+  "^[xf]?Example%s",
+  "^Mock%s",
+  "^Data%s*$",
+  "^Data:%l+%s*$",
+  "^Parameters%s*$",
+  "^Parameters:%l+%s*$",
+  "^BeforeEach%s*$",
+  "^AfterEach%s*$",
+  "^BeforeAll%s*$",
+  "^AfterAll%s*$",
+  "^Before%s*$",
+  "^After%s*$",
+  "^BeforeCall%s*$",
+  "^AfterCall%s*$",
+  "^BeforeRun%s*$",
+  "^AfterRun%s*$",
+}
+
+local function debug(msg)
+  if vim.g.shellspec_debug then
+    vim.notify("ShellSpec: " .. msg, vim.log.levels.DEBUG)
+  end
 end
 
--- Check if line starts a HEREDOC
-local function detect_heredoc_start(line)
-  local trimmed = vim.trim(line)
+--- Return the HEREDOC delimiter a line opens, or nil.
+---
+--- Here-strings are rejected before any pattern runs: `<<<"word"` contains `<<"`
+--- at offset 1 and would otherwise match the double-quoted pattern, leaving the
+--- formatter in a HEREDOC state that no later line can end. An empty delimiter is
+--- rejected for the same reason -- `is_heredoc_end` can never match one, so the
+--- rest of the file would be swallowed.
+---
+--- Lines containing `((` are rejected as well: the default patterns accept a
+--- blank after `<<`, so the arithmetic shift in `$(( a << b ))` would otherwise
+--- open a HEREDOC that swallows the rest of the file.
+---
+--- Patterns come from config so a project can add its own; each must carry
+--- exactly one capture group holding the delimiter.
+---
+--- Each match runs under pcall. config.validate_heredoc_patterns rejects the
+--- malformed shapes it knows, but Lua compiles a pattern only as a match walks
+--- it, so no up-front check can be exhaustive -- and an escaped error here
+--- aborted the whole format. A pattern that raises is warned about once and
+--- then treated as not matching.
+local broken_patterns = {}
+local function detect_heredoc_start(trimmed)
+  if trimmed:find("<<<", 1, true) or trimmed:find("((", 1, true) then
+    return nil
+  end
 
-  -- Check each pattern and extract delimiter directly
-  if string.match(trimmed, "<<[A-Z_][A-Z0-9_]*") then
-    return string.match(trimmed, "<<([A-Z_][A-Z0-9_]*)")
-  elseif string.match(trimmed, "<<'[^']*'") then
-    return string.match(trimmed, "<<'([^']*)'")
-  elseif string.match(trimmed, '<<"[^"]*"') then
-    return string.match(trimmed, '<<"([^"]*)"')
-  elseif string.match(trimmed, "<<-[A-Z_][A-Z0-9_]*") then
-    return string.match(trimmed, "<<-([A-Z_][A-Z0-9_]*)")
+  for _, pattern in ipairs(config.get("heredoc_patterns")) do
+    local ok, delimiter = pcall(string.match, trimmed, pattern)
+    if not ok then
+      if not broken_patterns[pattern] then
+        broken_patterns[pattern] = true
+        vim.notify("shellspec: heredoc_pattern " .. pattern .. " is malformed and was skipped: " .. tostring(delimiter), vim.log.levels.WARN)
+      end
+    elseif type(delimiter) == "string" and delimiter ~= "" then
+      return delimiter
+    end
   end
 
   return nil
 end
 
 -- Check if line ends a HEREDOC
-local function is_heredoc_end(line, delimiter)
-  if not delimiter then
-    return false
-  end
-  local trimmed = vim.trim(line)
-  return trimmed == delimiter
+local function is_heredoc_end(trimmed, delimiter)
+  return delimiter ~= nil and trimmed == delimiter
 end
 
 -- Check if line is a ShellSpec block keyword
-local function is_block_keyword(line)
-  local trimmed = vim.trim(line)
-
-  -- Debug logging
-  if vim.g.shellspec_debug then
-    vim.notify('ShellSpec: Checking if block keyword: "' .. trimmed .. '"', vim.log.levels.DEBUG)
-  end
-
-  -- Standard block keywords - check each one individually
-  if
-    string.match(trimmed, "^Describe%s")
-    or string.match(trimmed, "^Context%s")
-    or string.match(trimmed, "^ExampleGroup%s")
-    or string.match(trimmed, "^It%s")
-    or string.match(trimmed, "^Specify%s")
-    or string.match(trimmed, "^Example%s")
-  then
-    if vim.g.shellspec_debug then
-      vim.notify('ShellSpec: Matched standard block keyword: "' .. trimmed .. '"', vim.log.levels.DEBUG)
+local function is_block_keyword(trimmed)
+  for _, pattern in ipairs(BLOCK_PATTERNS) do
+    if string.match(trimmed, pattern) then
+      debug('Matched block keyword: "' .. trimmed .. '"')
+      return true
     end
-    return true
   end
-
-  -- Prefixed block keywords (x for skip, f for focus)
-  if
-    string.match(trimmed, "^[xf]Describe%s")
-    or string.match(trimmed, "^[xf]Context%s")
-    or string.match(trimmed, "^[xf]ExampleGroup%s")
-    or string.match(trimmed, "^[xf]It%s")
-    or string.match(trimmed, "^[xf]Specify%s")
-    or string.match(trimmed, "^[xf]Example%s")
-  then
-    if vim.g.shellspec_debug then
-      vim.notify('ShellSpec: Matched prefixed block keyword: "' .. trimmed .. '"', vim.log.levels.DEBUG)
-    end
-    return true
-  end
-
-  -- Data and Parameters blocks
-  if string.match(trimmed, "^Data%s*$") or string.match(trimmed, "^Parameters%s*$") then
-    if vim.g.shellspec_debug then
-      vim.notify('ShellSpec: Matched data/parameters block: "' .. trimmed .. '"', vim.log.levels.DEBUG)
-    end
-    return true
-  end
-
-  -- Hook keywords that create blocks (can be standalone)
-  if
-    string.match(trimmed, "^BeforeEach%s*$")
-    or string.match(trimmed, "^AfterEach%s*$")
-    or string.match(trimmed, "^BeforeAll%s*$")
-    or string.match(trimmed, "^AfterAll%s*$")
-    or string.match(trimmed, "^Before%s*$")
-    or string.match(trimmed, "^After%s*$")
-  then
-    if vim.g.shellspec_debug then
-      vim.notify('ShellSpec: Matched hook keyword: "' .. trimmed .. '"', vim.log.levels.DEBUG)
-    end
-    return true
-  end
-
-  -- Additional hook keywords (can be standalone)
-  if
-    string.match(trimmed, "^BeforeCall%s*$")
-    or string.match(trimmed, "^AfterCall%s*$")
-    or string.match(trimmed, "^BeforeRun%s*$")
-    or string.match(trimmed, "^AfterRun%s*$")
-  then
-    if vim.g.shellspec_debug then
-      vim.notify('ShellSpec: Matched additional hook keyword: "' .. trimmed .. '"', vim.log.levels.DEBUG)
-    end
-    return true
-  end
-
-  if vim.g.shellspec_debug then
-    vim.notify('ShellSpec: Not a block keyword: "' .. trimmed .. '"', vim.log.levels.DEBUG)
-  end
-
   return false
 end
 
 -- Check if line is an End keyword
-local function is_end_keyword(line)
-  local trimmed = vim.trim(line)
+local function is_end_keyword(trimmed)
   return string.match(trimmed, "^End%s*$") ~= nil
 end
 
 -- Check if line is a comment
-local function is_comment(line)
-  local trimmed = vim.trim(line)
+local function is_comment(trimmed)
   return string.match(trimmed, "^#") ~= nil
 end
 
 -- Generate indentation string
 local function make_indent(level)
-  local indent_size = config.get("indent_size")
-  local use_spaces = config.get("use_spaces")
-
-  if use_spaces then
-    return string.rep(" ", level * indent_size)
-  else
-    return string.rep("\t", level)
+  if config.get("use_spaces") then
+    return string.rep(" ", level * config.get("indent_size"))
   end
+  return string.rep("\t", level)
 end
 
--- Main formatting function
-function M.format_lines(lines)
+--- Reformat `lines`, returning a new list.
+---
+--- `start_indent` seeds the indent level, defaulting to 0. Callers formatting a
+--- sub-range must pass the level the range sits at; without it a nested
+--- selection is re-indented as though it were a whole file and flattened to
+--- column 0 while the lines around it keep their original indent.
+function M.format_lines(lines, start_indent)
   local result = {}
-  local indent_level = 0
+  local indent_level = start_indent or 0
   local state = State.NORMAL
   local heredoc_delimiter = nil
   local indent_comments = config.get("indent_comments")
@@ -158,76 +138,95 @@ function M.format_lines(lines)
   for _, line in ipairs(lines) do
     local trimmed = vim.trim(line)
 
-    -- Handle empty lines
     if trimmed == "" then
       table.insert(result, line)
-      goto continue
-    end
+    elseif state == State.IN_HEREDOC then
+      -- The terminator is emitted verbatim, like the body: a non-`<<-` HEREDOC
+      -- requires its delimiter at column 0, so indenting it leaves the shell
+      -- unable to close the HEREDOC and the rest of the file becomes body.
+      if is_heredoc_end(trimmed, heredoc_delimiter) then
+        state = State.NORMAL
+        heredoc_delimiter = nil
+        debug("HEREDOC end detected")
+      end
+      table.insert(result, line)
+    elseif is_comment(trimmed) then
+      -- Checked before HEREDOCs so a comment that merely mentions `<<EOF`
+      -- does not put the formatter into a HEREDOC state.
+      if indent_comments then
+        table.insert(result, make_indent(indent_level) .. trimmed)
+      else
+        table.insert(result, line)
+      end
+    elseif is_end_keyword(trimmed) then
+      indent_level = math.max(0, indent_level - 1)
+      table.insert(result, make_indent(indent_level) .. trimmed)
+    else
+      table.insert(result, make_indent(indent_level) .. trimmed)
 
-    -- State machine for HEREDOC handling
-    if state == State.NORMAL then
-      -- Check for HEREDOC start
-      local delimiter = detect_heredoc_start(line)
+      -- Checked before the HEREDOC start so a line that is both -- `It "x" <<EOF`
+      -- -- still opens its block.
+      if is_block_keyword(trimmed) then
+        indent_level = indent_level + 1
+        debug('Block keyword: "' .. trimmed .. '", new indent: ' .. indent_level)
+      end
+
+      local delimiter = detect_heredoc_start(trimmed)
       if delimiter then
         state = State.IN_HEREDOC
         heredoc_delimiter = delimiter
-        -- Apply current indentation to HEREDOC start line
-        local formatted_line = make_indent(indent_level) .. trimmed
-        table.insert(result, formatted_line)
-        goto continue
-      end
-
-      -- Handle End keyword (decrease indent first)
-      if is_end_keyword(line) then
-        indent_level = math.max(0, indent_level - 1)
-        local formatted_line = make_indent(indent_level) .. trimmed
-        table.insert(result, formatted_line)
-        goto continue
-      end
-
-      -- Handle comments
-      if is_comment(line) then
-        if indent_comments then
-          local formatted_line = make_indent(indent_level) .. trimmed
-          table.insert(result, formatted_line)
-        else
-          -- Preserve original comment formatting
-          table.insert(result, line)
-        end
-        goto continue
-      end
-
-      -- Handle non-comment lines (ShellSpec commands, etc.)
-      local formatted_line = make_indent(indent_level) .. trimmed
-      table.insert(result, formatted_line)
-
-      -- Increase indent after block keywords
-      if is_block_keyword(line) then
-        indent_level = indent_level + 1
-
-        -- Debug logging
-        if vim.g.shellspec_debug then
-          vim.notify('ShellSpec: Block keyword detected: "' .. trimmed .. '", new indent: ' .. indent_level, vim.log.levels.DEBUG)
-        end
-      end
-    elseif state == State.IN_HEREDOC then
-      -- Check for HEREDOC end
-      if is_heredoc_end(line, heredoc_delimiter) then
-        state = State.NORMAL
-        heredoc_delimiter = nil
-        -- Apply current indentation to HEREDOC end line
-        local formatted_line = make_indent(indent_level) .. trimmed
-        table.insert(result, formatted_line)
-      else
-        -- Preserve original indentation within HEREDOC
-        table.insert(result, line)
+        debug("HEREDOC start detected: '" .. delimiter .. "'")
       end
     end
-
-    ::continue::
   end
 
   return result
+end
+
+--- Indent level a line sits at, derived from its existing leading whitespace.
+local function indent_level_of(line)
+  local leading = line:match("^%s*") or ""
+  if config.get("use_spaces") then
+    return math.floor(#leading / config.get("indent_size"))
+  end
+  return #(leading:gsub("[^\t]", ""))
+end
+
+--- Line number of the HEREDOC opener whose body line `start_line` falls in, or
+--- nil when `start_line` is not inside a HEREDOC.
+---
+--- Replays format_lines' state rules over the lines above: comment and `End`
+--- lines never open a HEREDOC, and a trimmed line equal to the delimiter closes
+--- it.
+local function heredoc_opener_before(bufnr, start_line)
+  local delimiter, opener = nil, nil
+  for index, line in ipairs(vim.api.nvim_buf_get_lines(bufnr, 0, start_line - 1, false)) do
+    local trimmed = vim.trim(line)
+    if trimmed ~= "" then
+      if delimiter then
+        if is_heredoc_end(trimmed, delimiter) then
+          delimiter, opener = nil, nil
+        end
+      elseif not is_comment(trimmed) and not is_end_keyword(trimmed) then
+        delimiter = detect_heredoc_start(trimmed)
+        opener = delimiter and index or nil
+      end
+    end
+  end
+  return opener
+end
+
+--- Window currently displaying `bufnr`, or nil.
+---
+--- Cursor save/restore must target the window showing the buffer being
+--- formatted, not window 0: `format_buffer` is reachable from a `BufWritePre`
+--- autocmd and from `:bufdo`, where the current window shows something else.
+local function window_for(bufnr)
+  if bufnr == 0 then
+    bufnr = vim.api.nvim_get_current_buf()
+  end
+  local win = vim.fn.bufwinid(bufnr)
+  return win ~= -1 and win or nil
 end
 
 -- Format entire buffer
@@ -238,18 +237,19 @@ function M.format_buffer(bufnr)
     local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
     local formatted = M.format_lines(lines)
 
-    -- Store cursor position
-    local cursor_pos = vim.api.nvim_win_get_cursor(0)
+    local win = window_for(bufnr)
+    local cursor_pos = win and vim.api.nvim_win_get_cursor(win) or nil
 
-    -- Replace buffer content
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, formatted)
 
-    -- Restore cursor position
-    pcall(vim.api.nvim_win_set_cursor, 0, cursor_pos)
-
-    if vim.g.shellspec_debug then
-      vim.notify("ShellSpec: Formatted " .. #lines .. " lines", vim.log.levels.INFO)
+    -- Clamped rather than pcall'd: formatting can shorten the buffer past the
+    -- saved row, which is a foreseeable outcome, not an error to swallow.
+    if win and cursor_pos then
+      cursor_pos[1] = math.min(cursor_pos[1], vim.api.nvim_buf_line_count(bufnr))
+      vim.api.nvim_win_set_cursor(win, cursor_pos)
     end
+
+    debug("Formatted " .. #lines .. " lines")
   end)
 
   if not ok then
@@ -257,22 +257,72 @@ function M.format_buffer(bufnr)
   end
 end
 
--- Format selection
+--- Format buffer lines [start_line, end_line], 1-indexed against `bufnr`.
+---
+--- The indent level is taken from the first line's existing indentation, so a
+--- selection whose opening keyword lies outside the range keeps its place in the
+--- block structure instead of being flattened to column 0.
+---
+--- An `End` first line sits at its opener's level, but format_lines decrements
+--- before emitting `End`, so the seed is one deeper for it. Seeding with the
+--- line's own level shifted every following line one level left, which made
+--- `gq` or a range starting at an `End` corrupt already-formatted code.
+---
+--- A range that starts inside a HEREDOC is formatted from that HEREDOC's
+--- opener, and only the requested lines are written back. Without the opener,
+--- format_lines saw the body and terminator as ordinary lines and re-indented
+--- them, so the terminator could no longer close the HEREDOC.
 function M.format_selection(bufnr, start_line, end_line)
   bufnr = bufnr or 0
-  local lines = vim.api.nvim_buf_get_lines(bufnr, start_line - 1, end_line, false)
-  local formatted = M.format_lines(lines)
 
-  -- Replace selection
-  vim.api.nvim_buf_set_lines(bufnr, start_line - 1, end_line, false, formatted)
+  local ok, err = pcall(function()
+    local context_start = heredoc_opener_before(bufnr, start_line) or start_line
+    local lines = vim.api.nvim_buf_get_lines(bufnr, context_start - 1, end_line, false)
+    if #lines == 0 then
+      return
+    end
+    local seed = indent_level_of(lines[1])
+    if is_end_keyword(vim.trim(lines[1])) then
+      seed = seed + 1
+    end
+    local formatted = M.format_lines(lines, seed)
+    local offset = start_line - context_start
+    vim.api.nvim_buf_set_lines(bufnr, start_line - 1, end_line, false, { unpack(formatted, offset + 1) })
+  end)
+
+  if not ok then
+    vim.notify("ShellSpec: Format selection failed - " .. tostring(err), vim.log.levels.ERROR)
+  end
 end
 
--- Async format function for performance
-function M.format_buffer_async(bufnr, callback)
-  bufnr = bufnr or 0
+--- 'formatexpr' entry point, for `gq`.
+---
+--- Formats the range Vim asks about (`v:lnum` for `v:count` lines) rather than
+--- the whole buffer, and returns 0 to report the range as handled. Pointing
+--- 'formatexpr' straight at `format_buffer` made every `gq` motion rewrite the
+--- entire file.
+function M.formatexpr()
+  M.format_selection(0, vim.v.lnum, vim.v.lnum + vim.v.count - 1)
+  return 0
+end
 
-  -- Use vim.schedule to avoid blocking
+--- Format the buffer on the next event-loop tick.
+---
+--- Defers the work so a large buffer does not block the keystroke that started
+--- it; the formatting itself is still synchronous once it runs.
+---
+--- Buffer 0 is resolved to a real handle now, not inside the callback: 0 means
+--- "current buffer" at the moment it is read, so a buffer switch before the
+--- next tick used to reformat whatever buffer had become current instead.
+function M.format_buffer_async(bufnr, callback)
+  if bufnr == nil or bufnr == 0 then
+    bufnr = vim.api.nvim_get_current_buf()
+  end
+
   vim.schedule(function()
+    if not vim.api.nvim_buf_is_valid(bufnr) then
+      return
+    end
     M.format_buffer(bufnr)
     if callback then
       callback()
