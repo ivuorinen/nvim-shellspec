@@ -20,4 +20,4 @@
 # .pre-commit-config.yaml unchanged and substitutes Rust implementations for
 # the pre-commit/pre-commit-hooks entries automatically, so `prek run
 # --all-files` and `pre-commit run --all-files` check the same things.
-prek = "0.5.3"
+prek = "0.5.4"
