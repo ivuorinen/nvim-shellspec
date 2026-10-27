@@ -72,7 +72,7 @@ jobs:
 
       # Installs the versions pinned in mise.toml (prek and luacheck).
       - name: 🔧 Install pinned tools
-        uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
+        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
 
       # Every hook in .pre-commit-config.yaml, luacheck included. MegaLinter
       # (via pr-lint) covers only YAML/Markdown/JSON, so without this stylua,
